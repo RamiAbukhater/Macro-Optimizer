@@ -12,7 +12,9 @@ The notebook models grocery and dining hall choices as an integer linear program
 - A curated database of UCSD HDH dining hall a la carte items
 - A live scraper that pulls current nutrition facts from UCSD's public dining portal
 
-Market item prices are estimates from the 2024-25 school year. Real market inventory and pricing from UCSD Housing, Dining and Hospitality is in progress and will replace the curated estimates once available.
+## Data accuracy
+
+The market item prices and macros in this notebook are hand entered estimates from the 2024-25 school year, not official data, and they are known to be inaccurate in places. I'm currently in contact with UCSD Housing, Dining and Hospitality to get real inventory and pricing data for Goody's, Sixth Market, Seventh Market, and Sunshine Market. Once that data comes through, it will replace the curated estimates so results reflect what's actually on the shelves.
 
 ## Setup
 
