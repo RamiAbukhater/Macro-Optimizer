@@ -40,6 +40,10 @@ jupyter notebook ucsd_macro_optimizer.ipynb
 13. Add or update food items.
 14. Summary and recommendations.
 
+## Beyond UCSD
+
+This notebook is scoped to one campus, but the same idea works anywhere, macros and location in, an optimized plan across restaurants, corner stores, and grocery stores out. [IDEAS.md](IDEAS.md) sketches what that would take and flags the parts that are still an open problem. Anyone who wants to pick up a piece of it is welcome to.
+
 ## Preview
 
 ![Macro efficiency overview](analysis_overview.png)
