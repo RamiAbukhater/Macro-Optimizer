@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Prepared Meal Delivery: Chicken & Rice (illustrative)",
+    "category": "Prepared Meal Delivery",
+    "source": "Prepared Meal Delivery (illustrative placeholder, not a real vendor)",
+    "location": "Delivered",
+    "price": 15.00,
+    "serving_unit": "1 meal",
+    "calories": 450, "protein": 40, "carbs": 45, "fat": 12, "fiber": 5, "sodium": 620,
+    "allergens": [], "vegetarian": false, "vegan": false, "gluten_free": true,
+    "halal": false, "contains_pork": false, "max_daily": 2,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative only, priced per AUTOMATION.md's description of fixed-price prepared meal services (~$14-16/meal, known macros, zero prep time). Not real menu or pricing data from Trifecta or any other vendor."
+  },
+  {
+    "name": "Prepared Meal Delivery: Turkey & Sweet Potato (illustrative)",
+    "category": "Prepared Meal Delivery",
+    "source": "Prepared Meal Delivery (illustrative placeholder, not a real vendor)",
+    "location": "Delivered",
+    "price": 14.50,
+    "serving_unit": "1 meal",
+    "calories": 420, "protein": 35, "carbs": 50, "fat": 10, "fiber": 6, "sodium": 540,
+    "allergens": [], "vegetarian": false, "vegan": false, "gluten_free": true,
+    "halal": false, "contains_pork": false, "max_daily": 2,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative placeholder, see Chicken & Rice entry for sourcing note."
+  },
+  {
+    "name": "Prepared Meal Delivery: Salmon & Veggies (illustrative)",
+    "category": "Prepared Meal Delivery",
+    "source": "Prepared Meal Delivery (illustrative placeholder, not a real vendor)",
+    "location": "Delivered",
+    "price": 16.00,
+    "serving_unit": "1 meal",
+    "calories": 400, "protein": 32, "carbs": 25, "fat": 18, "fiber": 4, "sodium": 480,
+    "allergens": ["fish"], "vegetarian": false, "vegan": false, "gluten_free": true,
+    "halal": false, "contains_pork": false, "max_daily": 1,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative placeholder, see Chicken & Rice entry for sourcing note."
+  },
+  {
+    "name": "Prepared Meal Delivery: Vegan Buddha Bowl (illustrative)",
+    "category": "Prepared Meal Delivery",
+    "source": "Prepared Meal Delivery (illustrative placeholder, not a real vendor)",
+    "location": "Delivered",
+    "price": 14.00,
+    "serving_unit": "1 meal",
+    "calories": 380, "protein": 18, "carbs": 55, "fat": 14, "fiber": 9, "sodium": 410,
+    "allergens": [], "vegetarian": true, "vegan": true, "gluten_free": true,
+    "halal": true, "contains_pork": false, "max_daily": 2,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative placeholder, see Chicken & Rice entry for sourcing note."
+  }
+]

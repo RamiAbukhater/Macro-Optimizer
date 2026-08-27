@@ -1,0 +1,58 @@
+[
+  {
+    "name": "Restaurant Order: Chicken Bowl (illustrative)",
+    "category": "Restaurant Order",
+    "source": "Restaurant Order (illustrative placeholder, not a real vendor)",
+    "location": "Delivered, same day",
+    "price": 13.50,
+    "serving_unit": "1 order",
+    "calories": 650, "protein": 45, "carbs": 60, "fat": 22, "fiber": 6, "sodium": 980,
+    "allergens": [], "vegetarian": false, "vegan": false, "gluten_free": true,
+    "halal": false, "contains_pork": false, "max_daily": 1,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative only, priced per AUTOMATION.md's description of same-day agent-placed restaurant ordering (most expensive per meal, zero lead time). Not real menu or pricing data from DoorDash or any restaurant."
+  },
+  {
+    "name": "Restaurant Order: Burrito (illustrative)",
+    "category": "Restaurant Order",
+    "source": "Restaurant Order (illustrative placeholder, not a real vendor)",
+    "location": "Delivered, same day",
+    "price": 11.00,
+    "serving_unit": "1 order",
+    "calories": 780, "protein": 30, "carbs": 90, "fat": 28, "fiber": 8, "sodium": 1250,
+    "allergens": ["wheat", "milk"], "vegetarian": false, "vegan": false, "gluten_free": false,
+    "halal": false, "contains_pork": false, "max_daily": 1,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative placeholder, see Chicken Bowl entry for sourcing note."
+  },
+  {
+    "name": "Restaurant Order: Salad + Grilled Protein (illustrative)",
+    "category": "Restaurant Order",
+    "source": "Restaurant Order (illustrative placeholder, not a real vendor)",
+    "location": "Delivered, same day",
+    "price": 14.50,
+    "serving_unit": "1 order",
+    "calories": 450, "protein": 35, "carbs": 30, "fat": 20, "fiber": 7, "sodium": 720,
+    "allergens": [], "vegetarian": false, "vegan": false, "gluten_free": true,
+    "halal": false, "contains_pork": false, "max_daily": 1,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative placeholder, see Chicken Bowl entry for sourcing note."
+  },
+  {
+    "name": "Restaurant Order: Poke Bowl (illustrative)",
+    "category": "Restaurant Order",
+    "source": "Restaurant Order (illustrative placeholder, not a real vendor)",
+    "location": "Delivered, same day",
+    "price": 15.50,
+    "serving_unit": "1 order",
+    "calories": 550, "protein": 32, "carbs": 70, "fat": 15, "fiber": 5, "sodium": 890,
+    "allergens": ["fish", "soy"], "vegetarian": false, "vegan": false, "gluten_free": false,
+    "halal": false, "contains_pork": false, "max_daily": 1,
+    "prep_minutes": 0, "cook_minutes": 0,
+    "confidence": "illustrative_example",
+    "notes": "Illustrative placeholder, see Chicken Bowl entry for sourcing note."
+  }
+]

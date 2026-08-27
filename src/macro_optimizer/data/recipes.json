@@ -1,0 +1,91 @@
+[
+  {
+    "name": "Chicken & Rice Bowl",
+    "category": "Recipe",
+    "servings": 4,
+    "prep_minutes": 15,
+    "cook_minutes": 25,
+    "max_daily": 2,
+    "ingredients": [
+      {"ingredient": "chicken_breast_raw", "quantity": 600},
+      {"ingredient": "white_rice_dry", "quantity": 300},
+      {"ingredient": "broccoli_fresh", "quantity": 300},
+      {"ingredient": "olive_oil", "quantity": 20}
+    ],
+    "notes": "Batch-cook staple, splits into 4 servings across the week."
+  },
+  {
+    "name": "Peanut Butter Banana Overnight Oats",
+    "category": "Recipe",
+    "servings": 4,
+    "prep_minutes": 5,
+    "cook_minutes": 0,
+    "max_daily": 2,
+    "ingredients": [
+      {"ingredient": "rolled_oats_dry", "quantity": 200},
+      {"ingredient": "peanut_butter", "quantity": 64},
+      {"ingredient": "banana", "quantity": 2}
+    ],
+    "notes": "No active cook time, portion into jars the night before."
+  },
+  {
+    "name": "Egg & Cheese Scramble with Spinach",
+    "category": "Recipe",
+    "servings": 2,
+    "prep_minutes": 5,
+    "cook_minutes": 10,
+    "max_daily": 2,
+    "ingredients": [
+      {"ingredient": "egg", "quantity": 6},
+      {"ingredient": "cheddar_cheese", "quantity": 40},
+      {"ingredient": "spinach_fresh", "quantity": 60},
+      {"ingredient": "olive_oil", "quantity": 10}
+    ],
+    "notes": "Fast breakfast, high protein density."
+  },
+  {
+    "name": "Beef & Bean Taco Bowl",
+    "category": "Recipe",
+    "servings": 4,
+    "prep_minutes": 10,
+    "cook_minutes": 20,
+    "max_daily": 2,
+    "ingredients": [
+      {"ingredient": "ground_beef_90", "quantity": 500},
+      {"ingredient": "black_beans_canned", "quantity": 400},
+      {"ingredient": "white_rice_dry", "quantity": 200},
+      {"ingredient": "onion", "quantity": 100},
+      {"ingredient": "cheddar_cheese", "quantity": 80}
+    ],
+    "notes": "Freezes well; good candidate for a bigger batch."
+  },
+  {
+    "name": "Pasta Marinara with Black Beans",
+    "category": "Recipe",
+    "servings": 4,
+    "prep_minutes": 5,
+    "cook_minutes": 20,
+    "max_daily": 2,
+    "ingredients": [
+      {"ingredient": "pasta_dry", "quantity": 400},
+      {"ingredient": "marinara_sauce", "quantity": 500},
+      {"ingredient": "black_beans_canned", "quantity": 300},
+      {"ingredient": "olive_oil", "quantity": 15}
+    ],
+    "notes": "Vegan as written; beans stand in for the usual meat for protein per dollar."
+  },
+  {
+    "name": "Greek Yogurt Protein Bowl",
+    "category": "Recipe",
+    "servings": 2,
+    "prep_minutes": 5,
+    "cook_minutes": 0,
+    "max_daily": 2,
+    "ingredients": [
+      {"ingredient": "greek_yogurt_plain_bulk", "quantity": 300},
+      {"ingredient": "banana", "quantity": 2},
+      {"ingredient": "peanut_butter", "quantity": 32}
+    ],
+    "notes": "No cook time, good for a day with zero free time."
+  }
+]
