@@ -22,12 +22,23 @@ from typing import Dict, List, Optional, Union
 class PickHistory:
     """A log of {date, item_name, servings} entries, optionally JSON-backed."""
 
-    def __init__(self, path: Optional[Union[str, Path]] = None):
+    def __init__(self, path: Optional[Union[str, Path]] = None, entries: Optional[List[dict]] = None):
+        """``entries``, when given, seeds an in-memory-only copy (e.g. a persisted
+        history plus some extra picks to exclude for one solve) without writing
+        anything back to ``path``, callers that want a real on-disk log should
+        pass ``path`` alone and let ``record_plan``/``add_pick`` grow it."""
         self.path = Path(path) if path else None
-        self._entries: List[dict] = []
-        if self.path and self.path.exists():
+        if entries is not None:
+            self._entries: List[dict] = list(entries)
+        elif self.path and self.path.exists():
             with open(self.path, encoding="utf-8") as f:
                 self._entries = json.load(f)
+        else:
+            self._entries = []
+
+    def entries(self) -> List[dict]:
+        """A copy of every logged {date, name, servings} entry."""
+        return list(self._entries)
 
     def record_plan(self, plan_df, on: Optional[date] = None) -> None:
         """Log every item in a solved plan_df (must have 'name' and 'servings')."""
@@ -85,3 +96,34 @@ class PickHistory:
         """Item names that have hit the hard cap and must sit out this run entirely."""
         counts = self.counts_in_window(window_days, as_of=as_of)
         return [name for name, count in counts.items() if count >= max_appearances]
+
+    def tag_counts_in_window(
+        self,
+        item_tags: Dict[str, str],
+        window_days: int,
+        as_of: Optional[date] = None,
+    ) -> Dict[str, int]:
+        """Per-tag pick counts within the trailing window, summed from ``counts_in_window``.
+
+        ``item_tags`` maps item name -> tag (see tags.py). An item with no
+        entry there doesn't contribute to any tag's count, exact-name-only
+        rotation is left alone for anything the tag data doesn't cover.
+        """
+        counts = self.counts_in_window(window_days, as_of=as_of)
+        tag_counts: Counter = Counter()
+        for name, count in counts.items():
+            tag = item_tags.get(name)
+            if tag is not None:
+                tag_counts[tag] += count
+        return dict(tag_counts)
+
+    def tag_rotation_cap_exclusions(
+        self,
+        item_tags: Dict[str, str],
+        window_days: int,
+        max_appearances: int,
+        as_of: Optional[date] = None,
+    ) -> List[str]:
+        """Tag names that have hit the cap across all their items and must sit out this run."""
+        tag_counts = self.tag_counts_in_window(item_tags, window_days, as_of=as_of)
+        return [tag for tag, count in tag_counts.items() if count >= max_appearances]

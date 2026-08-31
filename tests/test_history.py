@@ -76,3 +76,70 @@ def test_persistence_round_trip(tmp_path):
     reloaded = PickHistory(path)
     counts = reloaded.counts_in_window(7, as_of=date.today())
     assert counts["Banana"] == 1
+
+
+def test_entries_returns_a_copy():
+    history = PickHistory()
+    history.add_pick("Banana", on=date.today())
+    entries = history.entries()
+    entries.append({"date": date.today().isoformat(), "name": "Injected", "servings": 1})
+    assert "Injected" not in [e["name"] for e in history.entries()]
+
+
+def test_tag_counts_in_window_sums_across_items_sharing_a_tag():
+    history = PickHistory()
+    today = date.today()
+    history.add_pick("Beef Burger", on=today)
+    history.add_pick("Beef Brisket", on=today - timedelta(days=1))
+    history.add_pick("Grilled Chicken", on=today)
+    item_tags = {"Beef Burger": "beef", "Beef Brisket": "beef", "Grilled Chicken": "chicken"}
+
+    counts = history.tag_counts_in_window(item_tags, window_days=7, as_of=today)
+    assert counts["beef"] == 2
+    assert counts["chicken"] == 1
+
+
+def test_tag_counts_in_window_ignores_items_with_no_tag():
+    history = PickHistory()
+    today = date.today()
+    history.add_pick("Mystery Snack", on=today)
+
+    counts = history.tag_counts_in_window({}, window_days=7, as_of=today)
+    assert counts == {}
+
+
+def test_tag_rotation_cap_exclusions_triggers_at_threshold():
+    history = PickHistory()
+    today = date.today()
+    history.add_pick("Beef Burger", on=today)
+    history.add_pick("Beef Brisket", on=today - timedelta(days=1))
+    item_tags = {"Beef Burger": "beef", "Beef Brisket": "beef"}
+
+    excluded = history.tag_rotation_cap_exclusions(item_tags, window_days=7, max_appearances=2, as_of=today)
+    assert "beef" in excluded
+
+
+def test_tag_rotation_cap_exclusions_below_threshold_not_excluded():
+    history = PickHistory()
+    today = date.today()
+    history.add_pick("Beef Burger", on=today)
+    item_tags = {"Beef Burger": "beef", "Beef Brisket": "beef"}
+
+    excluded = history.tag_rotation_cap_exclusions(item_tags, window_days=7, max_appearances=2, as_of=today)
+    assert "beef" not in excluded
+
+
+def test_seeding_from_entries_does_not_touch_disk(tmp_path):
+    path = tmp_path / "history.json"
+    base = PickHistory(path)
+    base.add_pick("Banana", on=date.today())
+
+    ephemeral = PickHistory(entries=base.entries())
+    ephemeral.add_pick("Tuna Packet", on=date.today())
+
+    # The ephemeral copy sees both picks in memory...
+    assert ephemeral.counts_in_window(7, as_of=date.today())["Tuna Packet"] == 1
+    # ...but nothing extra was ever written back to the real persisted file.
+    reloaded = PickHistory(path)
+    assert "Tuna Packet" not in reloaded.counts_in_window(7, as_of=date.today())
+    assert reloaded.counts_in_window(7, as_of=date.today())["Banana"] == 1

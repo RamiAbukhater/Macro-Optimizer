@@ -6,6 +6,7 @@ from .optimizer import run_optimizer
 from .profile import Profile, compute_goals, bmr, tdee
 from .recipes import load_recipes, load_ingredient_db, price_recipe, recipe_food_items
 from .pantry import Pantry
+from .shopping_list import build_shopping_list
 from .history import PickHistory
 from .menu_planner import DayPlan, plan_week, week_summary
 from .channels import ChannelAdapter, CookAtHomeAdapter, PreparedMealAdapter, RestaurantOrderAdapter
@@ -39,6 +40,7 @@ __all__ = [
     "price_recipe",
     "recipe_food_items",
     "Pantry",
+    "build_shopping_list",
     "PickHistory",
     "DayPlan",
     "plan_week",

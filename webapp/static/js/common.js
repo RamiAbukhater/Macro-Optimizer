@@ -1,0 +1,268 @@
+/* Shared shell (sidebar), plan storage, and small DOM/API helpers used by every page. */
+
+const ICONS = {
+  overview: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10" stroke-linecap="round"/></svg>',
+  cost: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9h18l-1.5 10.5a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5L3 9Z"/><path d="M8 9V6a4 4 0 0 1 8 0v3" stroke-linecap="round"/></svg>',
+  fridge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="2.5" width="14" height="19" rx="2"/><path d="M5 10h14M8 5.5v2M8 13v2" stroke-linecap="round"/></svg>',
+  edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9" stroke-linecap="round"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z"/></svg>',
+  shuffle: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 3l4 4-4 4M3 7h5c1.5 0 2.3.7 3.2 2M21 17h-5c-1.5 0-2.3-.7-3.2-2M17 21l4-4-4-4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  swap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3v14M7 17l-3-3M7 17l3-3M17 21V7M17 7l3 3M17 7l-3 3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v13M7 11l5 5 5-5M4 20h16" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M9 7V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5V7m2 0v12.5A1.5 1.5 0 0 1 15.5 21h-7A1.5 1.5 0 0 1 7 19.5V7h10Z" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" stroke-linecap="round"/></svg>',
+};
+
+const NAV_ITEMS = [
+  { key: "overview", href: "/dashboard", label: "Overview", icon: "overview" },
+  { key: "menu", href: "/menu", label: "Weekly Menu", icon: "menu" },
+  { key: "cost", href: "/cost", label: "Cost Analysis", icon: "cost" },
+  { key: "fridge", href: "/fridge", label: "Fridge", icon: "fridge" },
+];
+
+const CHANNEL_COLOR = {
+  "Cook at Home": "var(--series-1)",
+  "Prepared Meal Delivery": "var(--series-3)",
+  "Restaurant Order": "var(--series-2)",
+};
+
+const CHANNEL_BADGE_CLASS = {
+  "Cook at Home": "badge-channel-home",
+  "Prepared Meal Delivery": "badge-channel-prepared",
+  "Restaurant Order": "badge-channel-restaurant",
+};
+
+function el(tag, className, html) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (html !== undefined) node.innerHTML = html;
+  return node;
+}
+
+function formatDate(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
+function formatMoney(n) {
+  return `$${Number(n).toFixed(2)}`;
+}
+
+function renderShell(activeKey) {
+  const mount = document.getElementById("sidebar-mount");
+  if (!mount) return;
+  const nav = NAV_ITEMS.map(
+    (item) => `<a href="${item.href}" class="${item.key === activeKey ? "active" : ""}">${ICONS[item.icon]}<span>${item.label}</span></a>`
+  ).join("");
+
+  mount.innerHTML = `
+    <div class="sidebar-brand"><span class="mark">${ICONS.overview.replace('stroke-width="1.8"', 'stroke-width="2"')}</span>AutoEat</div>
+    <div class="sidebar-nav">${nav}</div>
+    <div class="sidebar-foot">
+      <a href="#" id="start-over-link">${ICONS.back}<span>Start over</span></a>
+      <a href="#" id="logout-link">${ICONS.logout}<span>Log out</span></a>
+    </div>
+  `;
+
+  document.getElementById("start-over-link").addEventListener("click", async (e) => {
+    e.preventDefault();
+    try {
+      await postJSON("/api/plan/reset", {});
+    } catch (err) {
+      /* fall through to the redirect either way */
+    }
+    window.location.href = "/";
+  });
+
+  document.getElementById("logout-link").addEventListener("click", async (e) => {
+    e.preventDefault();
+    try {
+      await postJSON("/api/auth/logout", {});
+    } catch (err) {
+      /* fall through to the redirect either way */
+    }
+    window.location.href = "/login";
+  });
+}
+
+function toast(message) {
+  let node = document.getElementById("app-toast");
+  if (!node) {
+    node = el("div", "toast");
+    node.id = "app-toast";
+    document.body.appendChild(node);
+  }
+  node.textContent = message;
+  node.classList.add("show");
+  clearTimeout(node._hideTimer);
+  node._hideTimer = setTimeout(() => node.classList.remove("show"), 2400);
+}
+
+const PLAN_KEY = "macroPlan";
+
+function loadPlan(redirect = true) {
+  const raw = sessionStorage.getItem(PLAN_KEY);
+  if (raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      /* fall through to the empty-sessionStorage handling below */
+    }
+  }
+
+  if (redirect) {
+    // sessionStorage is empty — a new tab, cleared storage, or a session
+    // cookie that outlived the browser session sessionStorage lives in.
+    // The account may still have a real plan server-side (see
+    // GET /api/plan), so check there before giving up and bouncing back to
+    // onboarding: adopt it into sessionStorage and reload rather than
+    // discarding a plan that still exists.
+    getJSON("/api/plan")
+      .then((serverPlan) => {
+        savePlan(serverPlan);
+        window.location.reload();
+      })
+      .catch(() => {
+        window.location.href = "/";
+      });
+  }
+  return null;
+}
+
+function savePlan(plan) {
+  sessionStorage.setItem(PLAN_KEY, JSON.stringify(plan));
+}
+
+/** Rebuild the {sex, age, ...} + budget/cook_time/filters payload the plan endpoints expect,
+ * from the profile inputs stashed alongside the plan at onboarding time. */
+function planRequestBase(plan) {
+  return {
+    ...plan.profile_input,
+    budget: plan.budget,
+    cook_time: plan.cook_time,
+    filters: plan.filters || {},
+  };
+}
+
+async function apiJSON(url, options = {}) {
+  const resp = await fetch(url, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  let body = null;
+  try {
+    body = await resp.json();
+  } catch (e) {
+    /* no body */
+  }
+  if (!resp.ok) {
+    const message = (body && body.error) || `Request to ${url} failed (${resp.status})`;
+    throw new Error(message);
+  }
+  return body;
+}
+
+function postJSON(url, data) {
+  return apiJSON(url, { method: "POST", body: JSON.stringify(data) });
+}
+
+function getJSON(url) {
+  return apiJSON(url);
+}
+
+function deleteJSON(url) {
+  return apiJSON(url, { method: "DELETE" });
+}
+
+/** Recompute channel_totals / week_summary / today client-side after a
+ * single day's items change (replace-item only returns that one day). */
+function recomputeAggregates(plan) {
+  const channelTotals = {};
+  let totalCost = 0;
+  const infeasibleDays = [];
+
+  plan.week.forEach((day) => {
+    if (!day.feasible) infeasibleDays.push(day.date);
+    totalCost += day.achieved.cost;
+    day.items.forEach((item) => {
+      const bucket = channelTotals[item.channel] || (channelTotals[item.channel] = { cost: 0, items: 0 });
+      bucket.cost += item.total_cost;
+      bucket.items += 1;
+    });
+  });
+
+  Object.values(channelTotals).forEach((b) => {
+    b.cost = Math.round(b.cost * 100) / 100;
+  });
+
+  plan.channel_totals = channelTotals;
+  plan.week_summary = {
+    total_cost: Math.round(totalCost * 100) / 100,
+    avg_daily_cost: Math.round((totalCost / plan.week.length) * 100) / 100,
+    days_planned: plan.week.length,
+    infeasible_days: infeasibleDays,
+  };
+  plan.today = plan.week[0];
+}
+
+function renderBudgetMeter(plan) {
+  const weeklyBudget = plan.budget * plan.week.length;
+  const pct = Math.min(100, (plan.week_summary.total_cost / weeklyBudget) * 100);
+  document.getElementById("budget-meter-value").textContent =
+    `${formatMoney(plan.week_summary.total_cost)} / ${formatMoney(weeklyBudget)} (${pct.toFixed(0)}%)`;
+  document.getElementById("budget-meter-fill").style.width = `${pct}%`;
+}
+
+function renderChannelBars(plan) {
+  const container = document.getElementById("channel-bars");
+  container.innerHTML = "";
+  const entries = Object.entries(plan.channel_totals).sort((a, b) => b[1].cost - a[1].cost);
+  if (entries.length === 0) {
+    container.appendChild(el("div", "empty-state", "No items were selected this week."));
+    return;
+  }
+  const maxCost = Math.max(...entries.map(([, v]) => v.cost));
+
+  entries.forEach(([channel, v]) => {
+    const row = el("div", "meter-row");
+    const pct = maxCost > 0 ? (v.cost / maxCost) * 100 : 0;
+    const label = el("div", "meter-label");
+    label.innerHTML = `<span class="name">${channel}</span><span class="value">${formatMoney(v.cost)} · ${v.items} item${v.items === 1 ? "" : "s"}</span>`;
+    row.appendChild(label);
+    const track = el("div", "meter-track");
+    const fill = el("div", "meter-fill");
+    fill.style.width = `${pct}%`;
+    fill.style.background = CHANNEL_COLOR[channel] || "var(--series-1)";
+    track.appendChild(fill);
+    row.appendChild(track);
+    container.appendChild(row);
+  });
+
+  if (plan.week_summary.infeasible_days.length > 0) {
+    const note = el("p", "", `${plan.week_summary.infeasible_days.length} day(s) this week were best-effort (couldn't fully meet goals within budget/time): ${plan.week_summary.infeasible_days.join(", ")}.`);
+    note.style.marginTop = "12px";
+    note.style.fontSize = "13px";
+    container.appendChild(note);
+  }
+}
+
+function recipeHref(item) {
+  return `/recipe/${encodeURIComponent(item.name)}?source=${encodeURIComponent(item.source)}`;
+}
+
+function downloadFile(filename, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

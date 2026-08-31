@@ -28,7 +28,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from .history import PickHistory
-from .optimizer import run_optimizer
+from .optimizer import run_optimizer_with_rotation_backoff
 
 
 @dataclass
@@ -52,6 +52,8 @@ def plan_week(
     recency_window_days: int = 7,
     recency_penalty_weight: float = 1.0,
     rotation_cap: Optional[int] = None,
+    tag_rotation_cap: Optional[int] = None,
+    item_tags: Optional[Dict[str, str]] = None,
     preference_bonus: Optional[dict] = None,
     verbose: bool = False,
 ) -> List[dict]:
@@ -76,15 +78,18 @@ def plan_week(
         goals = day.goals or default_goals
         budget_cap = day.budget_cap if day.budget_cap is not None else default_budget_cap
 
-        plan_df, summary = run_optimizer(
-            food_df,
-            goals,
-            budget_cap,
+        plan_df, summary = run_optimizer_with_rotation_backoff(
+            rotation_cap,
+            recency_window_days,
+            food_df=food_df,
+            goals=goals,
+            budget_cap=budget_cap,
             filters=filters,
             history=history,
-            recency_window_days=recency_window_days,
             recency_penalty_weight=recency_penalty_weight,
-            rotation_cap=rotation_cap,
+            tag_rotation_cap=tag_rotation_cap,
+            item_tags=item_tags,
+            as_of=day.on,
             time_budget_minutes=day.free_minutes,
             preference_bonus=preference_bonus,
             pinned_items=day.pinned_items,

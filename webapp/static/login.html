@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in — AutoEat</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="page-narrow-wrap">
+<div class="page-narrow">
+  <div class="eyebrow">AutoEat</div>
+  <h1>Log in</h1>
+  <p>Welcome back — pick up your plan, pantry, and taste profile where you left off.</p>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <form class="card" id="login-form">
+    <div class="field">
+      <label for="identifier">Email or username</label>
+      <input type="text" id="identifier" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="primary" id="submit-btn">Log in</button>
+  </form>
+
+  <p class="help-text">No account yet? <a href="/signup">Sign up</a>.</p>
+</div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/auth.js"></script>
+</body>
+</html>

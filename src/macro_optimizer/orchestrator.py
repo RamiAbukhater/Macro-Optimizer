@@ -24,13 +24,13 @@ doesn't have vendor access to build yet.
 
 from dataclasses import dataclass
 from datetime import date
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from .channels import ChannelAdapter
 from .database import load_food_db
 from .history import PickHistory
 from .menu_planner import DayPlan
-from .optimizer import run_optimizer
+from .optimizer import run_optimizer_with_rotation_backoff
 
 
 def plan_week_multichannel(
@@ -44,6 +44,8 @@ def plan_week_multichannel(
     recency_window_days: int = 7,
     recency_penalty_weight: float = 1.0,
     rotation_cap: Optional[int] = None,
+    tag_rotation_cap: Optional[int] = None,
+    item_tags: Optional[Dict[str, str]] = None,
     preference_bonus: Optional[dict] = None,
     verbose: bool = False,
 ) -> List[dict]:
@@ -81,11 +83,12 @@ def plan_week_multichannel(
         goals = day.goals or default_goals
         budget_cap = day.budget_cap if day.budget_cap is not None else default_budget_cap
 
-        plan_df, summary = run_optimizer(
-            food_df, goals, budget_cap, filters=filters,
-            history=history, recency_window_days=recency_window_days,
-            recency_penalty_weight=recency_penalty_weight, rotation_cap=rotation_cap,
-            time_budget_minutes=day.free_minutes, preference_bonus=preference_bonus,
+        plan_df, summary = run_optimizer_with_rotation_backoff(
+            rotation_cap, recency_window_days,
+            food_df=food_df, goals=goals, budget_cap=budget_cap, filters=filters,
+            history=history, recency_penalty_weight=recency_penalty_weight,
+            tag_rotation_cap=tag_rotation_cap, item_tags=item_tags,
+            as_of=day.on, time_budget_minutes=day.free_minutes, preference_bonus=preference_bonus,
             pinned_items=day.pinned_items, verbose=verbose,
         )
         history.record_plan(plan_df, on=day.on)

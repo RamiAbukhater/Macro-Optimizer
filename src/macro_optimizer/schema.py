@@ -19,7 +19,7 @@ FIELDS = [
     "price", "serving_unit",
     "calories", "protein", "carbs", "fat", "fiber", "sodium",
     "allergens", "vegetarian", "vegan", "gluten_free", "halal", "contains_pork",
-    "max_daily", "notes", "prep_minutes", "cook_minutes",
+    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url",
 ]
 
 REQUIRED_FIELDS = [
@@ -62,6 +62,13 @@ class FoodItem:
     # planning" section.
     prep_minutes: float = 0.0
     cook_minutes: float = 0.0
+    # A real product page, menu URL, or recipe source, when one legitimately
+    # exists. Defaults to "" (unknown/none), never fabricated, per the
+    # "recipe instructions / source links" gap IDEAS.md and backend_support.md
+    # flag: hand-curated market/dining rows and illustrative vendor catalogs
+    # have no real URL to attach yet, this field exists so one can be filled
+    # in per-row without a schema change once a real source is available.
+    source_url: str = ""
 
     def __post_init__(self):
         if self.price < 0:

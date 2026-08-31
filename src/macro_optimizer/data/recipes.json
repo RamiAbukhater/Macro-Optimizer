@@ -12,6 +12,14 @@
       {"ingredient": "broccoli_fresh", "quantity": 300},
       {"ingredient": "olive_oil", "quantity": 20}
     ],
+    "instructions": [
+      "Rinse the rice, then cook it in a rice cooker or covered pot per package directions.",
+      "Pat the chicken breast dry, season with salt and pepper, and cut into even pieces for faster, more even cooking.",
+      "Heat half the olive oil in a pan over medium-high heat and cook the chicken 5-7 minutes per side until it hits 165F internally, then rest and slice.",
+      "Cut the broccoli into florets, toss with the remaining oil, and steam or roast until just tender, 8-10 minutes.",
+      "Divide the rice into 4 containers, top each with sliced chicken and broccoli.",
+      "Cool to room temperature before sealing, then refrigerate; reheat portions through before eating."
+    ],
     "notes": "Batch-cook staple, splits into 4 servings across the week."
   },
   {
@@ -25,6 +33,13 @@
       {"ingredient": "rolled_oats_dry", "quantity": 200},
       {"ingredient": "peanut_butter", "quantity": 64},
       {"ingredient": "banana", "quantity": 2}
+    ],
+    "instructions": [
+      "Split the rolled oats evenly between 4 jars or containers.",
+      "Slice the bananas and divide them between the containers.",
+      "Add a spoonful of peanut butter to each, then top with enough water or milk to cover the oats (roughly 1:1 with the oats by volume).",
+      "Stir each jar, seal, and refrigerate overnight (at least 4 hours).",
+      "Stir again before eating; add a splash more liquid if it's thicker than you like."
     ],
     "notes": "No active cook time, portion into jars the night before."
   },
@@ -40,6 +55,13 @@
       {"ingredient": "cheddar_cheese", "quantity": 40},
       {"ingredient": "spinach_fresh", "quantity": 60},
       {"ingredient": "olive_oil", "quantity": 10}
+    ],
+    "instructions": [
+      "Crack the eggs into a bowl, season with salt and pepper, and whisk until uniform.",
+      "Heat the olive oil in a nonstick pan over medium heat and add the spinach, stirring until just wilted, about 1-2 minutes.",
+      "Pour in the eggs and let them sit a few seconds before gently folding with a spatula.",
+      "When the eggs are mostly set but still a little wet, sprinkle in the shredded cheddar and fold through off the heat, residual heat finishes melting it.",
+      "Split between 2 plates and serve immediately."
     ],
     "notes": "Fast breakfast, high protein density."
   },
@@ -57,6 +79,13 @@
       {"ingredient": "onion", "quantity": 100},
       {"ingredient": "cheddar_cheese", "quantity": 80}
     ],
+    "instructions": [
+      "Cook the rice per package directions.",
+      "Dice the onion and cook in a pan over medium heat until softened, about 3-4 minutes.",
+      "Add the ground beef, break it apart, and brown fully, seasoning with salt, pepper, cumin, and chili powder to taste.",
+      "Drain and rinse the black beans, then stir them in and heat through for 2-3 minutes.",
+      "Divide the rice into 4 bowls, top with the beef-and-bean mixture, and finish with shredded cheddar."
+    ],
     "notes": "Freezes well; good candidate for a bigger batch."
   },
   {
@@ -72,6 +101,12 @@
       {"ingredient": "black_beans_canned", "quantity": 300},
       {"ingredient": "olive_oil", "quantity": 15}
     ],
+    "instructions": [
+      "Bring a large pot of salted water to a boil and cook the pasta per package directions until al dente, then drain.",
+      "While the pasta cooks, drain and rinse the black beans.",
+      "Warm the olive oil in a saucepan over medium heat, add the marinara sauce and black beans, and simmer 5-8 minutes to heat through and let the flavors combine.",
+      "Toss the drained pasta with the sauce and beans, then divide into 4 portions."
+    ],
     "notes": "Vegan as written; beans stand in for the usual meat for protein per dollar."
   },
   {
@@ -85,6 +120,12 @@
       {"ingredient": "greek_yogurt_plain_bulk", "quantity": 300},
       {"ingredient": "banana", "quantity": 2},
       {"ingredient": "peanut_butter", "quantity": 32}
+    ],
+    "instructions": [
+      "Split the Greek yogurt between 2 bowls.",
+      "Slice the bananas and divide on top.",
+      "Warm the peanut butter for 10-15 seconds if it's stiff, then drizzle over each bowl.",
+      "Serve immediately, or refrigerate covered for up to a day."
     ],
     "notes": "No cook time, good for a day with zero free time."
   }

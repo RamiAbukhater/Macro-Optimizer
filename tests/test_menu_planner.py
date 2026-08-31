@@ -68,6 +68,36 @@ def test_plan_week_default_recency_penalty_nudges_variety_without_a_rotation_cap
     assert set(results[1]["plan_df"]["name"]) == {"ItemB"}
 
 
+def test_plan_week_does_not_freeze_after_day_two():
+    """Regression test for the reported "day one is unique, every day after
+    that just repeats the same meals" bug: run_optimizer's recency
+    penalty/rotation-cap window checked entries against real date.today()
+    instead of the day actually being solved. Since a rolling week logs each
+    day under a future date (today+1, today+2, ...), only day one's own entry
+    (dated exactly today) ever fell inside that frozen window; every later
+    day's pick was invisible to the day after it, so days three onward kept
+    re-solving the exact same problem as day two and landed on the same
+    answer forever. With ``as_of`` correctly threaded through, day three
+    should already differ from day two.
+    """
+    df = two_item_df()  # ItemA is strictly cheaper, ItemB is the only fallback
+    days = [DayPlan(on=date.today() + timedelta(days=i), free_minutes=1000) for i in range(4)]
+
+    results = plan_week(df, days, GOALS, default_budget_cap=10.0)  # default recency_penalty_weight=1.0
+    names = [set(r["plan_df"]["name"]) for r in results]
+
+    assert names[0] == {"ItemA"}  # day 1: empty history, cheapest wins
+    assert names[1] == {"ItemB"}  # day 2: day 1's pick is now penalized
+    # The bug: day 3 would silently repeat day 2's pick (ItemB) because day
+    # 2's own entry, dated tomorrow, never registered against a window pinned
+    # to real today. Once both items carry an equal one-occurrence penalty,
+    # the strictly cheaper ItemA wins again.
+    assert names[2] == {"ItemA"}
+    assert names[2] != names[1]
+    assert names[3] == {"ItemB"}
+    assert names[3] != names[2]
+
+
 def test_plan_week_respects_per_day_time_budget():
     df = two_item_df(
         item_a_kwargs={"cook_minutes": 60},  # cheaper, but too slow for a tight day

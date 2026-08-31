@@ -4,3 +4,10 @@ __pycache__/
 .DS_Store
 *.egg-info/
 .pytest_cache/
+webapp/data/pantry.json
+webapp/data/plan.json
+webapp/data/plan_previous.json
+webapp/data/history.json
+webapp/data/deviations.json
+webapp/data/app.db
+webapp/data/secret_key
