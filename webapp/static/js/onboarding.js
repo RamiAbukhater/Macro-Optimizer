@@ -24,7 +24,12 @@ form.addEventListener("submit", async (e) => {
   submitBtn.disabled = true;
   submitBtn.textContent = "Building your plan…";
 
-  const payload = {
+  let preferenceBonus = null;
+  if (window.swipeSurvey) {
+    preferenceBonus = await window.swipeSurvey.finalize();
+  }
+
+  const profileInput = {
     sex: document.getElementById("sex").value,
     age: Number(document.getElementById("age").value),
     height_ft: Number(document.getElementById("height_ft").value),
@@ -32,6 +37,10 @@ form.addEventListener("submit", async (e) => {
     weight_lbs: Number(document.getElementById("weight_lbs").value),
     activity: document.getElementById("activity").value,
     goal: selectedGoal,
+  };
+
+  const payload = {
+    ...profileInput,
     budget: Number(document.getElementById("budget").value),
     cook_time: document.getElementById("cook_time").value,
     filters: {
@@ -42,6 +51,10 @@ form.addEventListener("submit", async (e) => {
       no_pork: document.getElementById("f-no_pork").checked,
     },
   };
+
+  if (preferenceBonus) {
+    payload.preference_bonus = preferenceBonus;
+  }
 
   try {
     const resp = await fetch("/api/plan", {
@@ -58,7 +71,10 @@ form.addEventListener("submit", async (e) => {
       return;
     }
 
-    sessionStorage.setItem("macroPlan", JSON.stringify(body));
+    // Stash the raw form inputs alongside the plan so later pages (menu
+    // replace/reshuffle) can rebuild a full plan request without asking the
+    // user to re-enter their profile.
+    sessionStorage.setItem("macroPlan", JSON.stringify({ ...body, profile_input: profileInput }));
     window.location.href = "/dashboard";
   } catch (err) {
     showError("Could not reach the server. Is the Flask app running?");

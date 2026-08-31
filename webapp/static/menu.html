@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weekly Menu · AutoEat</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar" id="sidebar-mount"></div>
+
+  <div class="main" id="menu-root" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">Weekly Menu</div>
+        <h1>This week's meals</h1>
+        <p style="margin:0;">Channel chosen freely per day &mdash; cook at home, prepared meal delivery, or a same-day restaurant order.</p>
+      </div>
+      <div class="actions">
+        <button class="btn btn-secondary" id="reshuffle-btn"><span id="reshuffle-icon"></span>Reshuffle week</button>
+      </div>
+    </div>
+
+    <div class="legend" style="margin-bottom:16px;">
+      <div class="legend-item"><span class="legend-dot" style="background: var(--series-1);"></span>Cook at Home</div>
+      <div class="legend-item"><span class="legend-dot" style="background: var(--series-3);"></span>Prepared Meal Delivery</div>
+      <div class="legend-item"><span class="legend-dot" style="background: var(--series-2);"></span>Restaurant Order</div>
+    </div>
+
+    <div class="week-grid" id="week-grid"></div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loading"><span class="spinner"></span>Loading your menu…</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/menu.js"></script>
+</body>
+</html>

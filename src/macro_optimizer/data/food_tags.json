@@ -1,0 +1,15 @@
+{
+  "beef": ["beef", "steak", "ground beef", "burger", "brisket", "meatball"],
+  "chicken": ["chicken", "poultry", "chicken breast", "chicken thigh"],
+  "pork": ["pork", "bacon", "ham", "sausage", "prosciutto"],
+  "fish": ["fish", "salmon", "tuna", "tilapia", "shrimp", "seafood", "cod"],
+  "eggs": ["egg", "eggs"],
+  "dairy": ["dairy", "milk", "cheese", "yogurt", "cream", "dairy butter", "stick of butter"],
+  "fruit": ["fruit", "fruits"],
+  "vegetable": ["vegetable", "vegetables", "veggie", "veggies"],
+  "grain": ["grain", "grains", "carbs", "carbohydrates"],
+  "legume": ["legume", "legumes"],
+  "nuts": ["nuts", "nut butter"],
+  "sweets": ["sweet", "sweets", "dessert", "desserts", "candy"],
+  "beverage": ["beverage", "beverages", "drink", "drinks"]
+}

@@ -3,20 +3,44 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#2a78d6">
-<title>Macro Optimizer</title>
+<meta name="theme-color" content="#2a6df5">
+<title>AutoEat</title>
 <link rel="stylesheet" href="/css/style.css">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/icon.svg">
 </head>
 <body>
-<div class="page page-narrow">
-  <div class="eyebrow">Macro Optimizer</div>
+<div class="page-narrow-wrap">
+<div class="page-narrow">
+  <div class="eyebrow">AutoEat</div>
   <h1>Tell us about you</h1>
   <p>We'll turn this into daily macro targets and build a suggested weekly menu around them.</p>
 
   <div class="error-banner" id="error-banner"></div>
+
+  <div class="card" id="swipe-card">
+    <div class="section-title">
+      <h2>Quick taste check</h2>
+      <span class="hint">~1 min, optional</span>
+    </div>
+    <p>Swipe through a few foods so your first plan already leans toward what you like.</p>
+
+    <div class="swipe-progress" id="swipe-progress"></div>
+
+    <div class="swipe-stack" id="swipe-stack">
+      <div class="swipe-loading" id="swipe-loading">Loading foods…</div>
+    </div>
+
+    <div class="swipe-actions" id="swipe-actions" style="display: none;">
+      <button type="button" class="swipe-btn swipe-btn-dislike" id="swipe-dislike" aria-label="Dislike">✕</button>
+      <button type="button" class="swipe-btn swipe-btn-like" id="swipe-like" aria-label="Like">♥</button>
+    </div>
+
+    <div class="swipe-done" id="swipe-done" style="display: none;">Thanks — we'll use that to shape your plan.</div>
+
+    <button type="button" class="skip-link" id="swipe-skip">Skip this</button>
+  </div>
 
   <form class="card" id="profile-form">
     <div class="field">
@@ -99,8 +123,11 @@
     <button type="submit" class="primary" id="submit-btn">Build my plan</button>
   </form>
 </div>
+</div>
 
 <script src="/js/pwa.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/swipe-survey.js"></script>
 <script src="/js/onboarding.js"></script>
 </body>
 </html>

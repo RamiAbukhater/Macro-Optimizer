@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe · AutoEat</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar" id="sidebar-mount"></div>
+
+  <div class="main" id="recipe-root" style="display:none;">
+    <a href="#" id="back-link" class="back-link"><span class="back-icon"></span>Back</a>
+
+    <div class="card">
+      <div class="recipe-hero">
+        <div>
+          <div class="eyebrow" id="recipe-eyebrow"></div>
+          <h1 id="recipe-title"></h1>
+          <div id="recipe-badges" class="flag-row"></div>
+        </div>
+        <div style="text-align:right;">
+          <div class="stat-label" style="text-transform:uppercase;font-size:11.5px;color:var(--text-muted);font-weight:600;">Price / serving</div>
+          <div class="stat-value" id="recipe-price" style="font-size:26px;font-weight:700;"></div>
+        </div>
+      </div>
+      <hr class="divider">
+      <div class="stat-row" id="macro-row" style="margin-bottom:0;"></div>
+    </div>
+
+    <div class="card" id="ingredients-card" style="display:none;">
+      <div class="section-title">
+        <h2>Ingredients</h2>
+        <span class="hint" id="servings-hint"></span>
+      </div>
+      <div id="ingredients-list"></div>
+    </div>
+
+    <div class="card" id="notes-card" style="display:none;">
+      <div class="section-title"><h2>Notes</h2></div>
+      <p id="notes-text" style="margin:0;"></p>
+    </div>
+
+    <div class="card" id="source-card" style="display:none;">
+      <div class="section-title"><h2>Source</h2></div>
+      <div id="source-body"></div>
+    </div>
+  </div>
+
+  <div class="main" id="recipe-error" style="display:none;">
+    <div class="empty-state"><span id="error-text"></span></div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loading"><span class="spinner"></span>Loading…</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/recipe.js"></script>
+</body>
+</html>

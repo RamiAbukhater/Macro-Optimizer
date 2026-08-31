@@ -78,3 +78,83 @@ def test_persistence_round_trip(tmp_path):
 
     reloaded = Pantry(path)
     assert reloaded.have("rice") == 300
+
+
+def test_set_quantity_overwrites_rather_than_accumulates():
+    pantry = Pantry()
+    pantry.add("rice", 500)
+    pantry.set_quantity("rice", 200)
+    assert pantry.have("rice") == 200
+
+
+def test_set_quantity_creates_new_entry():
+    pantry = Pantry()
+    pantry.set_quantity("rice", 150, expires_on="2026-01-01")
+    assert pantry.have("rice") == 150
+    assert pantry.list_items()["rice"].expires_on == "2026-01-01"
+
+
+def test_set_quantity_rejects_negative():
+    pantry = Pantry()
+    with pytest.raises(ValueError):
+        pantry.set_quantity("rice", -5)
+
+
+def test_remove_drops_ingredient():
+    pantry = Pantry()
+    pantry.add("rice", 500)
+    pantry.remove("rice")
+    assert pantry.have("rice") == 0.0
+    assert "rice" not in pantry.list_items()
+
+
+def test_remove_unknown_ingredient_is_noop():
+    pantry = Pantry()
+    pantry.remove("unobtainium")  # should not raise
+
+
+def test_list_items_returns_all_entries():
+    pantry = Pantry()
+    pantry.add("rice", 500)
+    pantry.add("chicken", 200, expires_on="2026-01-01")
+    items = pantry.list_items()
+    assert set(items) == {"rice", "chicken"}
+    assert items["chicken"].expires_on == "2026-01-01"
+
+
+def test_list_items_is_a_copy():
+    pantry = Pantry()
+    pantry.add("rice", 500)
+    items = pantry.list_items()
+    items["rice"].quantity = 999
+    assert pantry.have("rice") == 500
+
+
+def test_set_quantity_stores_custom_ingredient_metadata():
+    pantry = Pantry()
+    pantry.set_quantity("salmon_fillet", 400, unit="g", display_name="Salmon Fillet", source="USDA FoodData Central")
+    entry = pantry.list_items()["salmon_fillet"]
+    assert entry.unit == "g"
+    assert entry.display_name == "Salmon Fillet"
+    assert entry.source == "USDA FoodData Central"
+
+
+def test_set_quantity_defaults_custom_metadata_to_none():
+    pantry = Pantry()
+    pantry.set_quantity("rice", 200)
+    entry = pantry.list_items()["rice"]
+    assert entry.unit is None
+    assert entry.display_name is None
+    assert entry.source is None
+
+
+def test_custom_ingredient_metadata_round_trips_through_persistence(tmp_path):
+    path = tmp_path / "pantry.json"
+    pantry = Pantry(path)
+    pantry.set_quantity("salmon_fillet", 400, unit="g", display_name="Salmon Fillet", source="Open Food Facts")
+
+    reloaded = Pantry(path)
+    entry = reloaded.list_items()["salmon_fillet"]
+    assert entry.unit == "g"
+    assert entry.display_name == "Salmon Fillet"
+    assert entry.source == "Open Food Facts"

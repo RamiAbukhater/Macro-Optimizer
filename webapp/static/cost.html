@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cost Analysis · AutoEat</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar" id="sidebar-mount"></div>
+
+  <div class="main" id="cost-root" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">Cost Analysis</div>
+        <h1>Budget &amp; shopping list</h1>
+        <p style="margin:0;">What this week costs, where it goes, and what to actually buy.</p>
+      </div>
+    </div>
+
+    <div class="stat-row" id="stat-row"></div>
+
+    <div class="card">
+      <div class="section-title">
+        <h2>Budget &amp; channel mix</h2>
+        <span class="hint">Across the full week</span>
+      </div>
+      <div class="meter-row">
+        <div class="meter-label">
+          <span class="name">Weekly budget utilization</span>
+          <span class="value" id="budget-meter-value"></span>
+        </div>
+        <div class="meter-track"><div class="meter-fill" id="budget-meter-fill" style="background: var(--series-1);"></div></div>
+      </div>
+      <div id="channel-bars"></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <h2>Shopping list</h2>
+        <span class="hint">Home-cooked recipe ingredients &amp; packaged market items, minus what's already in your fridge</span>
+      </div>
+      <div class="actions" style="margin-bottom:16px;">
+        <button class="btn btn-secondary" id="export-human-btn"><span class="export-icon"></span>Human-readable list (.txt)</button>
+        <button class="btn btn-secondary" id="export-instacart-btn"><span class="export-icon"></span>Instacart-ready format (.json)</button>
+      </div>
+      <div id="shopping-list-body"></div>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loading"><span class="spinner"></span>Loading cost analysis…</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/cost.js"></script>
+</body>
+</html>

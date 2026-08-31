@@ -1,6 +1,6 @@
-// Cache-first for the static app shell only. Never touches /api/* — plan
-// data changes on every submit, so caching it here would risk showing a
-// stale plan.
+// Cache-first for the static app shell only. Never touches /api/* — plan,
+// pantry, and auth state are per-user and change on every mutation, so
+// caching them here would risk showing stale macros or a stale pantry.
 const CACHE_NAME = "autoeat-shell-v1";
 const SHELL_ASSETS = [
   "/css/style.css",

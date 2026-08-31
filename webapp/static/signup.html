@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign up — AutoEat</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="page-narrow-wrap">
+<div class="page-narrow">
+  <div class="eyebrow">AutoEat</div>
+  <h1>Create your account</h1>
+  <p>Your plan, pantry, pick history, and taste profile all live here, scoped to you.</p>
+
+  <div class="error-banner" id="error-banner"></div>
+
+  <form class="card" id="signup-form">
+    <div class="field">
+      <label for="email">Email</label>
+      <input type="email" id="email" autocomplete="email" required>
+    </div>
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" autocomplete="username" required>
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="new-password" minlength="8" required>
+      <div class="help-text">At least 8 characters.</div>
+    </div>
+    <button type="submit" class="primary" id="submit-btn">Sign up</button>
+  </form>
+
+  <p class="help-text">Already have an account? <a href="/login">Log in</a>.</p>
+</div>
+</div>
+
+<script src="/js/common.js"></script>
+<script src="/js/auth.js"></script>
+</body>
+</html>
