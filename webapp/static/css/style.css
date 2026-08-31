@@ -419,3 +419,38 @@ button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
   color: var(--text-secondary);
   z-index: 10;
 }
+
+/* ---------- Responsive: tablet and down ---------- */
+
+@media (max-width: 720px) {
+  .page { padding: 20px 16px 56px; }
+  h1 { font-size: 22px; }
+  .card { padding: 18px; }
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .week-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+
+/* ---------- Responsive: phone width ---------- */
+
+@media (max-width: 480px) {
+  body { font-size: 15px; }
+  .page { padding: 16px 12px 48px; }
+  h1 { font-size: 20px; }
+  .card { padding: 14px; border-radius: var(--radius-sm); }
+
+  .top-nav { flex-wrap: wrap; gap: 8px; }
+
+  .stat-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-tile { padding: 12px; }
+  .stat-tile .stat-value { font-size: 20px; }
+
+  .field-row { flex-direction: column; gap: 0; }
+  .goal-cards { grid-template-columns: 1fr; gap: 8px; }
+
+  .week-grid { grid-template-columns: 1fr; }
+
+  .plan-list li { flex-wrap: wrap; }
+  .day-card .item-list li { flex-wrap: wrap; }
+
+  .legend { gap: 10px; font-size: 12px; }
+}
