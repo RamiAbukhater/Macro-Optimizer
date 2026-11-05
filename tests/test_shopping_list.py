@@ -82,12 +82,6 @@ def test_prepared_meal_and_restaurant_items_need_no_shopping():
     assert len(result["no_shopping_needed"]) == 2
 
 
-def test_dining_hall_items_need_no_shopping():
-    items = [{"name": "Dining Hall Pasta", "source": "Dining Hall", "servings": 1}]
-    result = build_shopping_list(items, recipes=RECIPES, ingredient_db=INGREDIENT_DB)
-    assert result["no_shopping_needed"] == [{"name": "Dining Hall Pasta", "source": "Dining Hall", "servings": 1}]
-
-
 def test_total_estimated_cost_sums_ingredients_and_packaged():
     items = [
         {"name": "Chicken & Rice Bowl", "source": "Home Cooking", "servings": 4},

@@ -1,7 +1,7 @@
 import pytest
 
 from macro_optimizer.channels import CookAtHomeAdapter, PreparedMealAdapter, RestaurantOrderAdapter
-from macro_optimizer.database import load_dining_items, load_market_items
+from macro_optimizer.database import load_market_items
 from macro_optimizer.recipes import load_recipes
 from macro_optimizer.schema import FoodItem
 
@@ -10,10 +10,10 @@ def test_cook_at_home_lead_time_is_zero():
     assert CookAtHomeAdapter.lead_time_days == 0
 
 
-def test_cook_at_home_candidates_include_market_dining_and_recipes():
+def test_cook_at_home_candidates_include_market_and_recipes():
     adapter = CookAtHomeAdapter()
     candidates = adapter.candidates()
-    expected_count = len(load_market_items()) + len(load_dining_items()) + len(load_recipes())
+    expected_count = len(load_market_items()) + len(load_recipes())
     assert len(candidates) == expected_count
     assert all(isinstance(c, FoodItem) for c in candidates)
 

@@ -17,17 +17,14 @@ def _load_json_items(path: Path) -> List[dict]:
 
 
 def load_market_items() -> List[dict]:
-    return _load_json_items(DATA_DIR / "market_items.json")
-
-
-def load_dining_items() -> List[dict]:
-    return _load_json_items(DATA_DIR / "dining_items.json")
+    """The ready-to-eat grocery catalog: real products, prices, and nutrition
+    labels from one supermarket, built by scripts/build_kroger_catalog.py."""
+    return _load_json_items(DATA_DIR / "kroger_items.json")
 
 
 def load_food_db(
     extra_items: Optional[Iterable[Union[dict, FoodItem]]] = None,
     include_market: bool = True,
-    include_dining: bool = True,
 ) -> pd.DataFrame:
     """Build the combined candidate food DataFrame.
 
@@ -38,8 +35,6 @@ def load_food_db(
     items: List[dict] = []
     if include_market:
         items.extend(load_market_items())
-    if include_dining:
-        items.extend(load_dining_items())
     if extra_items:
         for item in extra_items:
             items.append(item.to_dict() if isinstance(item, FoodItem) else item)

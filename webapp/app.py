@@ -43,7 +43,7 @@ from macro_optimizer import (
     usda_search_foods,
     usda_to_food_item,
 )
-from macro_optimizer.database import load_dining_items, load_market_items
+from macro_optimizer.database import load_market_items
 from macro_optimizer.nlu import classify_intent, extract_item_match, extract_tag, load_food_tags, resolve_day
 from macro_optimizer.adjustments import exclude_and_resolve, resolve_tag_to_item_names
 from macro_optimizer.deviation import MACRO_KEYS, DeviationLog, carry_forward_goals, recompute_day_macros
@@ -157,7 +157,7 @@ def build_catalog_item_tags(channels) -> dict:
     candidates = []
     for c in channels:
         candidates.extend(c.candidates())
-    food_df = load_food_db(extra_items=candidates, include_market=False, include_dining=False)
+    food_df = load_food_db(extra_items=candidates, include_market=False)
     return build_item_tags(food_df, load_food_tags())
 
 
@@ -690,7 +690,7 @@ def api_plan_replace_item():
     candidates = []
     for c in viable:
         candidates.extend(c.candidates())
-    food_df = load_food_db(extra_items=candidates, include_market=False, include_dining=False)
+    food_df = load_food_db(extra_items=candidates, include_market=False)
     food_df = food_df[food_df["name"] != replace_name].reset_index(drop=True)
 
     missing_keep = [n for n in keep_items if n not in food_df["name"].values]
@@ -741,7 +741,7 @@ def _food_df_for_day(days_out: int):
     candidates = []
     for c in viable:
         candidates.extend(c.candidates())
-    food_df = load_food_db(extra_items=candidates, include_market=False, include_dining=False)
+    food_df = load_food_db(extra_items=candidates, include_market=False)
     return food_df, viable
 
 
@@ -1158,9 +1158,6 @@ def api_recipe(name):
     for raw in load_market_items():
         if raw["name"] == name:
             return jsonify(_product_payload(raw, "Market"))
-    for raw in load_dining_items():
-        if raw["name"] == name:
-            return jsonify(_product_payload(raw, "Dining Hall"))
     for adapter, label in ((PreparedMealAdapter(), "Prepared Meal Delivery"), (RestaurantOrderAdapter(), "Restaurant Order")):
         fi = _item_by_name(adapter.candidates(), name)
         if fi is not None:

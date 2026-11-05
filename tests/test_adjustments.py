@@ -12,7 +12,7 @@ def two_item_df(item_a_kwargs=None, item_b_kwargs=None):
     base = dict(category="Protein", source="Test", calories=200, protein=50, carbs=0, fat=0, max_daily=5)
     a = FoodItem(name="Grilled Chicken Breast", price=1.0, **{**base, **(item_a_kwargs or {})})
     b = FoodItem(name="ItemB", price=1.5, **{**base, **(item_b_kwargs or {})})
-    return load_food_db(extra_items=[a, b], include_market=False, include_dining=False)
+    return load_food_db(extra_items=[a, b], include_market=False)
 
 
 def test_exclude_and_resolve_removes_matched_items_from_the_plan():
@@ -67,7 +67,7 @@ def test_resolve_tag_to_item_names_matches_via_allergens_when_text_gives_no_hint
         name="Core Power Elite, Chocolate", price=4.99, category="Protein Shake", source="Test",
         calories=230, protein=42, carbs=8, fat=4.5, max_daily=5, allergens=["milk"],
     )
-    df = load_food_db(extra_items=[shake], include_market=False, include_dining=False)
+    df = load_food_db(extra_items=[shake], include_market=False)
     assert resolve_tag_to_item_names(df, "dairy") == ["Core Power Elite, Chocolate"]
 
 
@@ -79,5 +79,5 @@ def test_resolve_tag_to_item_names_does_not_confuse_nut_butter_with_dairy():
         name="Almond Butter Packet", price=1.5, category="Nuts", source="Test",
         calories=190, protein=7, carbs=6, fat=16, max_daily=5,
     )
-    df = load_food_db(extra_items=[almond_butter], include_market=False, include_dining=False)
+    df = load_food_db(extra_items=[almond_butter], include_market=False)
     assert resolve_tag_to_item_names(df, "dairy") == []

@@ -19,7 +19,7 @@ FIELDS = [
     "price", "serving_unit",
     "calories", "protein", "carbs", "fat", "fiber", "sodium",
     "allergens", "vegetarian", "vegan", "gluten_free", "halal", "contains_pork",
-    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url",
+    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url", "kind",
 ]
 
 REQUIRED_FIELDS = [
@@ -69,6 +69,12 @@ class FoodItem:
     # have no real URL to attach yet, this field exists so one can be filled
     # in per-row without a schema change once a real source is available.
     source_url: str = ""
+    # What sort of food this is, at the level a person means by "I already
+    # had peanut butter today", for catalogs big enough to carry the same
+    # thing under many brands and sizes. The optimizer caps a day's servings
+    # per kind (see optimizer.KIND_DAILY_CAP). "" means no grouping, which is
+    # right for recipes and one-of-a-kind items.
+    kind: str = ""
 
     def __post_init__(self):
         if self.price < 0:

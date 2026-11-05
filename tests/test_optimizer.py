@@ -112,14 +112,14 @@ def test_run_optimizer_rotation_cap_checks_against_as_of_not_real_today():
 def test_run_optimizer_time_budget_excludes_slow_recipes():
     df = load_food_db(extra_items=recipe_food_items())
     # Every recipe in the seed set takes at least 10 minutes; a 5-minute
-    # budget should force the plan back onto ready-to-eat market/dining items.
+    # budget should force the plan back onto ready-to-eat grocery items.
     plan_df, _ = run_optimizer(df, GOALS, budget_cap=28.00, time_budget_minutes=5, verbose=False)
     assert not plan_df.empty
     assert (plan_df["total_time_minutes"] <= 5).all()
 
 
 def test_run_optimizer_time_budget_zero_still_feasible_from_ready_to_eat_items():
-    df = load_food_db()  # market/dining items only, all prep_minutes = cook_minutes = 0
+    df = load_food_db()  # grocery catalog only, all prep_minutes = cook_minutes = 0
     plan_df, summary = run_optimizer(df, GOALS, budget_cap=28.00, time_budget_minutes=0, verbose=False)
     assert summary["feasible"] is True
     assert (plan_df["total_time_minutes"] == 0).all()
@@ -127,8 +127,7 @@ def test_run_optimizer_time_budget_zero_still_feasible_from_ready_to_eat_items()
 
 def test_run_optimizer_preference_bonus_pulls_in_a_boosted_item():
     df = load_food_db()
-    target = "Whole Grain Bagel"
-    assert target in df["name"].values
+    target = next(name for name in df["name"] if "Bagel" in name)
 
     plan_df, _ = run_optimizer(
         df, GOALS, budget_cap=28.00,
@@ -140,7 +139,7 @@ def test_run_optimizer_preference_bonus_pulls_in_a_boosted_item():
 
 def test_run_optimizer_pinned_items_forced_into_plan():
     df = load_food_db()
-    pin = "Drip Coffee, Large (16 oz)"  # negligible macros, would not be picked otherwise
+    pin = df.sort_values("protein_per_dollar").iloc[0]["name"]  # worst protein per dollar, not picked otherwise
     plan_df, _ = run_optimizer(df, GOALS, budget_cap=28.00, pinned_items=[pin], verbose=False)
     assert pin in plan_df["name"].values
     assert plan_df.loc[plan_df["name"] == pin, "servings"].iloc[0] >= 1
@@ -148,7 +147,7 @@ def test_run_optimizer_pinned_items_forced_into_plan():
 
 def test_run_optimizer_pinned_item_missing_after_filters_raises():
     df = load_food_db()
-    non_vegan_pin = "Grilled Chicken Breast (4 oz)"
+    non_vegan_pin = df.loc[~df["vegan"], "name"].iloc[0]
     with pytest.raises(ValueError):
         run_optimizer(df, GOALS, budget_cap=28.00, filters={"vegan": True}, pinned_items=[non_vegan_pin], verbose=False)
 
@@ -160,7 +159,7 @@ def test_run_optimizer_tag_rotation_cap_excludes_every_item_sharing_an_over_capp
                              calories=300, protein=30, carbs=0, fat=10, max_daily=5)
     chicken = FoodItem(name="Chicken Breast", category="Protein", source="Test", price=1.0,
                         calories=200, protein=40, carbs=0, fat=5, max_daily=5)
-    df = load_food_db(extra_items=[beef_burger, beef_brisket, chicken], include_market=False, include_dining=False)
+    df = load_food_db(extra_items=[beef_burger, beef_brisket, chicken], include_market=False)
     item_tags = {"Beef Burger": "beef", "Beef Brisket": "beef"}
 
     history = PickHistory()
@@ -188,7 +187,7 @@ def _two_item_db(protein_b=5.0, max_daily_b=5):
                  calories=200, protein=50, carbs=0, fat=0, max_daily=5)
     b = FoodItem(name="ItemB", category="Protein", source="Test", price=1.0,
                  calories=50, protein=protein_b, carbs=0, fat=0, max_daily=max_daily_b)
-    return load_food_db(extra_items=[a, b], include_market=False, include_dining=False)
+    return load_food_db(extra_items=[a, b], include_market=False)
 
 
 def test_run_optimizer_with_rotation_backoff_relaxes_cap_when_strict_cap_is_infeasible():
@@ -267,7 +266,7 @@ def test_run_optimizer_with_rotation_backoff_keeps_the_tighter_cap_when_no_cap_r
                  calories=10, protein=40, carbs=0, fat=0, max_daily=2)
     b = FoodItem(name="ItemB", category="Protein", source="Test", price=1.0,
                  calories=10, protein=10, carbs=0, fat=0, max_daily=2)
-    df = load_food_db(extra_items=[a, b], include_market=False, include_dining=False)
+    df = load_food_db(extra_items=[a, b], include_market=False)
 
     history = PickHistory()
     history.add_pick("ItemA", on=date.today())  # rotation_cap=1 excludes it

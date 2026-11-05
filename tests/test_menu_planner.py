@@ -14,7 +14,7 @@ def two_item_df(item_a_kwargs=None, item_b_kwargs=None):
     base = dict(category="Protein", source="Test", calories=200, protein=50, carbs=0, fat=0, max_daily=5)
     a = FoodItem(name="ItemA", price=1.0, **{**base, **(item_a_kwargs or {})})
     b = FoodItem(name="ItemB", price=1.5, **{**base, **(item_b_kwargs or {})})
-    return load_food_db(extra_items=[a, b], include_market=False, include_dining=False)
+    return load_food_db(extra_items=[a, b], include_market=False)
 
 
 def test_plan_week_returns_one_result_per_day():

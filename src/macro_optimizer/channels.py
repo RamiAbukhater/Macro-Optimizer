@@ -28,7 +28,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import List, Optional
 
-from .database import load_dining_items, load_market_items
+from .database import load_market_items
 from .pantry import Pantry
 from .recipes import recipe_food_items
 from .schema import FoodItem
@@ -54,7 +54,7 @@ class ChannelAdapter(ABC):
 
 
 class CookAtHomeAdapter(ChannelAdapter):
-    """The channel this whole project already builds: market + dining + recipes.
+    """The channel this whole project already builds: grocery catalog + recipes.
 
     Cheapest by far, costs real prep time (reflected in each candidate's
     prep_minutes/cook_minutes), and can be decided the same day.
@@ -68,7 +68,6 @@ class CookAtHomeAdapter(ChannelAdapter):
 
     def candidates(self) -> List[FoodItem]:
         items = [FoodItem.from_dict(d) for d in load_market_items()]
-        items += [FoodItem.from_dict(d) for d in load_dining_items()]
         items += recipe_food_items(pantry=self.pantry)
         return items
 

@@ -162,6 +162,6 @@ def test_to_food_item_feeds_directly_into_load_food_db():
     from macro_optimizer.database import load_food_db
 
     item = to_food_item(CHICKEN_BREAST, price=2.00)
-    df = load_food_db(extra_items=[item], include_market=False, include_dining=False)
+    df = load_food_db(extra_items=[item], include_market=False)
     assert len(df) == 1
     assert df.iloc[0]["source"] == "USDA FoodData Central (SR Legacy)"
