@@ -55,8 +55,14 @@ def test_to_food_item_prices_one_serving_from_package_weight():
     assert "UPC 0085777700401" in item.notes and "$10.99" in item.notes
 
 
-def test_to_food_item_uses_the_sale_price_and_says_so():
+def test_to_food_item_plans_with_the_regular_price_during_a_sale():
     item = to_food_item(_product(promo=8.99))
+    assert item.price == pytest.approx(10.99 / (257.98 / 52), abs=0.01)
+    assert "on sale for $8.99 (sale price not used)" in item.notes
+
+
+def test_to_food_item_uses_the_sale_price_when_asked_and_says_so():
+    item = to_food_item(_product(promo=8.99), use_promo=True)
     assert item.price == pytest.approx(8.99 / (257.98 / 52), abs=0.01)
     assert "on sale from $10.99" in item.notes
 

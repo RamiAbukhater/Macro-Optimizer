@@ -4,6 +4,8 @@ __pycache__/
 .DS_Store
 .env
 data_snapshots/
+# Kroger API content: their Terms (Section 5e) restrict storing it.
+src/macro_optimizer/data/kroger_items.json
 *.egg-info/
 .pytest_cache/
 webapp/data/pantry.json

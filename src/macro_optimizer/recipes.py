@@ -23,9 +23,22 @@ from .schema import FoodItem
 DATA_DIR = Path(__file__).parent / "data"
 
 
-def load_ingredient_db() -> Dict[str, dict]:
+def load_ingredient_db(live: bool = True) -> Dict[str, dict]:
+    """Ingredient macros and prices from ingredients.json.
+
+    With ``live`` (the default), each ingredient pinned to a store product in
+    grocery.db is repriced from Kroger right now, and its ``price_source``
+    says so. The prices in the file are the fallback for anything unpinned,
+    or for when Kroger can't be reached.
+    """
     with open(DATA_DIR / "ingredients.json", encoding="utf-8") as f:
-        return json.load(f)
+        db = json.load(f)
+    if live:
+        from .market import ingredient_prices
+
+        for key, priced in ingredient_prices(db).items():
+            db[key].update(priced)
+    return db
 
 
 def load_recipes() -> List[dict]:
