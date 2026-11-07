@@ -36,6 +36,7 @@ from typing import List, Optional, Tuple
 
 import requests
 
+from .display_names import display_name_for
 from .schema import FoodItem
 
 BASE_URL = "https://api.kroger.com/v1"
@@ -507,5 +508,6 @@ def to_food_item(
         ),
         source_url=f"https://www.kroger.com{page}" if page else "",
         kind=kind,
+        display_name=display_name_for(record["description"], record["brand"], record["upc"]),
         **_dietary_flags(product, nutrition["ingredients"]),
     )

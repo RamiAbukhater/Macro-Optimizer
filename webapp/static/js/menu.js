@@ -24,7 +24,7 @@ async function handleReplace(day, item, btn) {
     recomputeAggregates(plan);
     savePlan(plan);
     renderWeek();
-    toast(`Swapped out ${item.name}`);
+    toast(`Swapped out ${itemLabel(item)}`);
   } catch (err) {
     toast(err.message || "Couldn't find a replacement for that item.");
     btn.classList.remove("loading");
@@ -86,13 +86,13 @@ function renderWeek() {
       li.appendChild(dot);
 
       const left = el("div", "item-main");
-      left.innerHTML = `<a class="item-link" href="${recipeHref(item)}">${item.name}</a>${item.servings > 1 ? ` <span class="item-qty">×${item.servings}</span>` : ""}`;
+      left.innerHTML = `<a class="item-link" href="${recipeHref(item)}">${itemLabel(item)}</a>${item.servings > 1 ? ` <span class="item-qty">×${item.servings}</span>` : ""}`;
       li.appendChild(left);
 
       const right = el("div", "item-side");
       right.appendChild(el("span", "item-cost", formatMoney(item.total_cost)));
       const replaceBtn = el("button", "item-replace-btn", ICONS.swap);
-      replaceBtn.title = `Replace ${item.name}`;
+      replaceBtn.title = `Replace ${itemLabel(item)}`;
       replaceBtn.addEventListener("click", () => handleReplace(day, item, replaceBtn));
       right.appendChild(replaceBtn);
       li.appendChild(right);

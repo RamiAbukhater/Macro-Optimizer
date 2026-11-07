@@ -1,0 +1,17 @@
+{
+ "_comment": "UPC -> display name, for Kroger titles the rules in display_names.py can't clean (licensed characters, sub-brands without a (R)/TM mark, scrambled supplier titles). Hand-reviewed; applied by kroger.to_food_item and scripts/backfill_display_names.py. Keys starting with _ are ignored.",
+ "0002100005317": "Mac & Cheese Cups",
+ "0002100002917": "Mac & Cheese Cups",
+ "0003022306379": "Caribbean Crunch Salad Kit",
+ "0009396600954": "Mozzarella String Cheese Snack Sticks",
+ "0085003199072": "Cheddar Mac & Cheese Cup",
+ "0004178900622": "Beef Flavor Ramen Noodle Soup",
+ "0004178900621": "Chicken Flavor Ramen Noodle Soup",
+ "0003760010618": "Super Chunk Peanut Butter",
+ "0004610001131": "Colby Pepper Jack Cheese Sticks",
+ "0004610000717": "Light Mozzarella String Cheese",
+ "0085004614807": "Albacore Tuna in Spicy Olive Oil",
+ "0085002026041": "Black Bean Veggie Burger",
+ "0074982600206": "Fruity Pebbles Protein Bars",
+ "0001111065144": "Asian Style Sesame Ginger Chopped Salad Kit"
+}

@@ -34,7 +34,7 @@ function renderToday() {
   plan.today.items.forEach((item) => {
     const li = el("li");
     const left = el("div");
-    left.appendChild(el("div", "plan-item-name", `<a class="item-link" href="${recipeHref(item)}">${item.name}</a> ${item.servings > 1 ? `<span class="item-qty">×${item.servings}</span>` : ""}`));
+    left.appendChild(el("div", "plan-item-name", `<a class="item-link" href="${recipeHref(item)}">${itemLabel(item)}</a> ${item.servings > 1 ? `<span class="item-qty">×${item.servings}</span>` : ""}`));
     const badgeClass = CHANNEL_BADGE_CLASS[item.channel] || "badge-channel-home";
     left.appendChild(el("div", "plan-item-meta", `<span class="badge ${badgeClass}">${item.channel}</span><span>${itemMetaLine(item)}</span>`));
     li.appendChild(left);

@@ -44,7 +44,7 @@ window.swipeSurvey = {
     }
     const card = cards[index];
     const face = el("div", "swipe-card-face");
-    face.appendChild(el("div", "swipe-card-name", card.name));
+    face.appendChild(el("div", "swipe-card-name", itemLabel(card)));
     face.appendChild(el("div", "swipe-card-source", card.source));
     face.appendChild(el("div", "swipe-card-meta", itemMetaLine(card)));
     stack.appendChild(face);

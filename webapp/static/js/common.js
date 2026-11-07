@@ -264,6 +264,13 @@ function renderChannelBars(plan) {
   }
 }
 
+// What to call a food on screen: the cleaned display name when there is
+// one, else the raw name (recipes, and plans saved before display names).
+// item.name stays the identity key for links, swaps and taste picks.
+function itemLabel(item) {
+  return item.display_name || item.name;
+}
+
 function recipeHref(item) {
   return `/recipe/${encodeURIComponent(item.name)}?source=${encodeURIComponent(item.source)}`;
 }

@@ -20,6 +20,7 @@ FIELDS = [
     "calories", "protein", "carbs", "fat", "fiber", "sodium",
     "allergens", "vegetarian", "vegan", "gluten_free", "halal", "contains_pork",
     "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url", "kind",
+    "display_name",
 ]
 
 REQUIRED_FIELDS = [
@@ -75,6 +76,12 @@ class FoodItem:
     # per kind (see optimizer.KIND_DAILY_CAP). "" means no grouping, which is
     # right for recipes and one-of-a-kind items.
     kind: str = ""
+    # What to show a person, when ``name`` is a raw product title full of
+    # brand and package noise ("Kroger® Hawaiian Bagels" -> "Hawaiian
+    # Bagels"). Filled at catalog-build time by display_names.py. ``name``
+    # stays the raw, unique title because it's the identity key for taste
+    # profiles, pins and history; "" means show ``name`` as is.
+    display_name: str = ""
 
     def __post_init__(self):
         if self.price < 0:

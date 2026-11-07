@@ -55,6 +55,12 @@ def test_to_food_item_prices_one_serving_from_package_weight():
     assert "UPC 0085777700401" in item.notes and "$10.99" in item.notes
 
 
+def test_to_food_item_keeps_the_raw_title_and_adds_a_clean_display_name():
+    item = to_food_item(_product(description="Frigo® Cheese Heads™ Light Mozzarella String Cheese, 12 ct", brand="Frigo"))
+    assert item.name == "Frigo® Cheese Heads™ Light Mozzarella String Cheese, 12 ct"
+    assert item.display_name == "Light Mozzarella String Cheese"
+
+
 def test_to_food_item_uses_the_sale_price_and_says_so():
     item = to_food_item(_product(promo=8.99))
     assert item.price == pytest.approx(8.99 / (257.98 / 52), abs=0.01)

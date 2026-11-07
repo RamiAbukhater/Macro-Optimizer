@@ -776,6 +776,35 @@ def test_api_swipe_cards_returns_a_sample_of_unique_items(client):
             assert key in card
 
 
+def test_api_swipe_cards_show_clean_display_names_but_keep_raw_names(client):
+    cards = client.get("/api/swipe-cards").get_json()["cards"]
+    kroger = [c for c in cards if c["source"] == "Kroger API"]
+    assert kroger, "expected some Kroger catalog cards"
+    assert all(c["display_name"] and "®" not in c["display_name"] and "™" not in c["display_name"] for c in kroger)
+    # The raw title is still the key taste picks are recorded under.
+    assert any(c["display_name"] != c["name"] for c in kroger)
+
+
+def test_plan_items_carry_display_names(client):
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    items = [i for d in plan["week"] for i in d["items"]]
+    assert items and all(i["display_name"] for i in items)
+
+
+def test_adjust_matches_and_previews_by_display_name(client):
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    today = plan["today"]
+    shown = [i for i in today["items"] if i["display_name"] != i["name"]]
+    if not shown:
+        pytest.skip("today's plan has no item whose display name differs from its raw title")
+    item = shown[0]
+    body = client.post("/api/plan/adjust", json={"message": f"I didn't like the {item['display_name']} today"}).get_json()
+    assert body["status"] == "confirm"
+    assert body["directive"]["matched_names"] == [item["name"]]
+    assert item["display_name"] in body["preview"]
+    assert item["name"] not in body["preview"]
+
+
 def test_api_swipe_survey_maps_liked_and_disliked_picks_to_signed_bonus(client):
     picks = {"picks": [{"name": "Apple", "liked": True}, {"name": "Banana", "liked": False}]}
     resp = client.post("/api/swipe-survey", json=picks)
