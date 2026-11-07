@@ -18,6 +18,24 @@ function updateWeeklyBudgetHint() {
 weeklyBudgetInput.addEventListener("input", updateWeeklyBudgetHint);
 updateWeeklyBudgetHint();
 
+const COOK_MINUTES = { low: 20, medium: 45, high: 90 };
+const weekendToggle = document.getElementById("cook_weekend_different");
+const weekendField = document.getElementById("cook_time_weekend_field");
+const cookTimeLabel = document.querySelector('label[for="cook_time"]');
+weekendToggle.addEventListener("change", () => {
+  weekendField.hidden = !weekendToggle.checked;
+  cookTimeLabel.textContent = weekendToggle.checked ? "Time to cook on weekdays" : "Time to cook per day";
+});
+
+/** Mon..Sun minutes: the main answer for every day, or weekdays + a separate weekend answer. */
+function cookScheduleFromForm() {
+  const weekday = COOK_MINUTES[document.getElementById("cook_time").value];
+  const weekend = weekendToggle.checked
+    ? COOK_MINUTES[document.getElementById("cook_time_weekend").value]
+    : weekday;
+  return [weekday, weekday, weekday, weekday, weekday, weekend, weekend];
+}
+
 const form = document.getElementById("profile-form");
 const errorBanner = document.getElementById("error-banner");
 const submitBtn = document.getElementById("submit-btn");
@@ -52,6 +70,7 @@ form.addEventListener("submit", async (e) => {
     ...profileInput,
     weekly_budget: Number(document.getElementById("weekly_budget").value),
     cook_time: document.getElementById("cook_time").value,
+    cook_schedule: cookScheduleFromForm(),
     filters: {
       vegetarian: document.getElementById("f-vegetarian").checked,
       vegan: document.getElementById("f-vegan").checked,

@@ -174,6 +174,9 @@ function planRequestBase(plan) {
     ...plan.profile_input,
     weekly_budget: plan.weekly_budget,
     cook_time: plan.cook_time,
+    // Per-day minutes (Mon..Sun). Older saved plans only carry cook_time;
+    // the server expands that to 7 equal days when cook_schedule is absent.
+    ...(Array.isArray(plan.cook_schedule) ? { cook_schedule: plan.cook_schedule } : {}),
     filters: plan.filters || {},
   };
 }

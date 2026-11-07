@@ -4,7 +4,7 @@
 // /api/* — plan, pantry, and auth state are per-user and change on every
 // mutation, so caching them here would risk showing stale macros or a stale
 // pantry.
-const CACHE_NAME = "autoeat-shell-v3";
+const CACHE_NAME = "autoeat-shell-v4";
 const SHELL_ASSETS = [
   "/css/style.css",
   "/manifest.json",

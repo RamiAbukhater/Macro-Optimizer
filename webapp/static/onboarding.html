@@ -10,6 +10,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/cook-schedule.css">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/icon.svg">
@@ -123,6 +124,15 @@
               <option value="medium" selected>Some (~45 min)</option>
               <option value="high">Plenty (~90 min)</option>
             </select>
+            <div class="checkbox-row cook-weekend-toggle"><input type="checkbox" id="cook_weekend_different"><label for="cook_weekend_different">Weekends are different</label></div>
+            <div id="cook_time_weekend_field" hidden>
+              <label for="cook_time_weekend">Time to cook on weekends</label>
+              <select id="cook_time_weekend">
+                <option value="low">Not much (~20 min)</option>
+                <option value="medium">Some (~45 min)</option>
+                <option value="high" selected>Plenty (~90 min)</option>
+              </select>
+            </div>
           </div>
         </div>
 
