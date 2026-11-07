@@ -240,3 +240,43 @@ def test_get_product_returns_none_for_an_unknown_upc():
     with patch("macro_optimizer.kroger.requests.post", return_value=TOKEN_RESPONSE), \
          patch("macro_optimizer.kroger.requests.get", return_value=_response({}, status=404)):
         assert client.get_product("0000000000000", "70300108") is None
+
+
+def test_get_products_batches_upcs_fifty_per_call():
+    client = KrogerClient("id", "secret")
+    upcs = [f"{n:013d}" for n in range(120)]
+
+    def fake_get(url, params, headers, timeout):
+        ids = params["filter.productId"].split(",")
+        assert len(ids) <= 50 and params["filter.locationId"] == "70300108"
+        return _response({"data": [{"upc": upc, "items": []} for upc in ids if upc != upcs[7]]})
+
+    with patch("macro_optimizer.kroger.requests.post", return_value=TOKEN_RESPONSE), \
+         patch("macro_optimizer.kroger.requests.get", side_effect=fake_get) as get:
+        found = client.get_products(upcs + upcs[:3], "70300108")
+    assert get.call_count == 3  # 120 unique UPCs, duplicates dropped
+    assert len(found) == 119 and upcs[7] not in found
+    assert client.calls == 3
+
+
+def test_server_errors_are_retried_with_backoff_then_succeed():
+    client = KrogerClient("id", "secret")
+    responses = [_response({}, status=503), _response({"data": [CHICKEN]})]
+    with patch("macro_optimizer.kroger.requests.post", return_value=TOKEN_RESPONSE), \
+         patch("macro_optimizer.kroger.requests.get", side_effect=responses), \
+         patch("macro_optimizer.kroger.time.sleep") as sleep:
+        assert client.search_products("chicken", "70300108")[0]["upc"] == CHICKEN["upc"]
+    sleep.assert_called_once()
+    assert client.calls == 2
+
+
+def test_an_unreachable_api_raises_a_clear_error_after_retrying():
+    import requests
+
+    client = KrogerClient("id", "secret")
+    with patch("macro_optimizer.kroger.requests.post", return_value=TOKEN_RESPONSE), \
+         patch("macro_optimizer.kroger.requests.get", side_effect=requests.ConnectionError), \
+         patch("macro_optimizer.kroger.time.sleep"):
+        with pytest.raises(KrogerError, match="unreachable"):
+            client.search_products("chicken", "70300108")
+    assert client.calls == 3

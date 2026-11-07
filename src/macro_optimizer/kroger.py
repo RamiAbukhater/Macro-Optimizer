@@ -29,7 +29,9 @@ back with no price at all. Call ``find_locations`` first.
 import json
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -45,6 +47,15 @@ CLIENT_SECRET_ENV_VAR = "KROGER_CLIENT_SECRET"
 PRODUCT_SCOPE = "product.compact"
 REQUEST_TIMEOUT = 10
 MAX_PAGE_SIZE = 50  # Kroger rejects filter.limit above 50
+MAX_IDS_PER_CALL = 50  # filter.productId takes up to 50 comma-separated UPCs
+PARALLEL_CALLS = 4  # batches fetched at once; a whole-catalog fetch is ~34 calls
+RETRIES = 3  # attempts per call on a timeout, connection error or 5xx
+RETRY_BACKOFF_SECONDS = 2.0  # doubled after each failed attempt
+
+# Macro-per-dollar outliers aren't food a plan should lean on, they're
+# almost always a label or package-size mismatch that slipped through.
+MAX_PROTEIN_PER_DOLLAR = 60
+MAX_CALORIES_PER_DOLLAR = 2500
 
 # Package sizes come back as free text ("16 oz", "1 gal", "5 lb", "12 ct").
 # Everything is normalized to the three units data/ingredients.json prices
@@ -97,14 +108,15 @@ def parse_size(size: Optional[str]) -> Optional[Tuple[float, str]]:
     return round(quantity, 2), factor[0]
 
 
-def to_price_record(product: dict, location_id: str = "") -> Optional[dict]:
+def to_price_record(product: dict, location_id: str = "", use_promo: bool = True) -> Optional[dict]:
     """Flatten one Kroger product into a price record, or None if it carries no price.
 
     A product comes back unpriced when it isn't sold at the requested
     store, those are dropped here rather than reported at $0. ``price`` is
     what a shopper pays today (the promo price when one is running),
     ``regular_price`` is kept alongside so a refresh job can tell a
-    temporary sale from a real change.
+    temporary sale from a real change. With ``use_promo=False``, ``price``
+    is the regular price even during a sale (``on_sale`` still says so).
     """
     items = product.get("items") or []
     if not items:
@@ -115,7 +127,8 @@ def to_price_record(product: dict, location_id: str = "") -> Optional[dict]:
     if not regular:
         return None
     promo = pricing.get("promo") or 0
-    price = promo if 0 < promo < regular else regular
+    sale_running = 0 < promo < regular
+    price = promo if sale_running and use_promo else regular
 
     record = {
         "upc": product.get("upc") or product.get("productId") or "",
@@ -124,7 +137,7 @@ def to_price_record(product: dict, location_id: str = "") -> Optional[dict]:
         "size": item.get("size") or "",
         "price": price,
         "regular_price": regular,
-        "on_sale": price < regular,
+        "on_sale": sale_running,
         "sold_by": item.get("soldBy") or "",
         "stock_level": (item.get("inventory") or {}).get("stockLevel") or "",
         "location_id": location_id,
@@ -171,8 +184,14 @@ class KrogerClient:
             )
         self._token: Optional[str] = None
         self._token_expires_at = 0.0
+        self.calls = 0  # API requests made, so a refresh run can report and budget them
+        self._lock = threading.Lock()  # get_products fetches batches from several threads
 
     def _get_token(self) -> str:
+        with self._lock:
+            return self._token_locked()
+
+    def _token_locked(self) -> str:
         if self._token and time.time() < self._token_expires_at:
             return self._token
         resp = requests.post(
@@ -190,15 +209,37 @@ class KrogerClient:
         self._token_expires_at = time.time() + body.get("expires_in", 1800) - 60
         return self._token
 
+    def _request(self, path: str, params: dict):
+        """GET with retries on timeouts, dropped connections and 5xx, backing off between tries.
+
+        A 429 is not retried: Kroger's limits are per day, so waiting
+        seconds won't help, and hammering a limit is how an app gets cut off.
+        """
+        delay = RETRY_BACKOFF_SECONDS
+        for attempt in range(1, RETRIES + 1):
+            with self._lock:
+                self.calls += 1
+            try:
+                resp = requests.get(
+                    f"{BASE_URL}{path}",
+                    params=params,
+                    headers={"Authorization": f"Bearer {self._get_token()}", "Accept": "application/json"},
+                    timeout=REQUEST_TIMEOUT,
+                )
+            except (requests.ConnectionError, requests.Timeout):
+                if attempt == RETRIES:
+                    raise KrogerError(f"Kroger API unreachable after {RETRIES} tries.")
+            else:
+                if resp.status_code == 429:
+                    raise KrogerError("Kroger daily rate limit reached, try again tomorrow.")
+                if resp.status_code < 500 or attempt == RETRIES:
+                    return resp
+            time.sleep(delay)
+            delay *= 2
+        raise AssertionError("unreachable")
+
     def _get(self, path: str, params: dict) -> dict:
-        resp = requests.get(
-            f"{BASE_URL}{path}",
-            params=params,
-            headers={"Authorization": f"Bearer {self._get_token()}", "Accept": "application/json"},
-            timeout=REQUEST_TIMEOUT,
-        )
-        if resp.status_code == 429:
-            raise KrogerError("Kroger daily rate limit reached, try again tomorrow.")
+        resp = self._request(path, params)
         resp.raise_for_status()
         return resp.json()
 
@@ -236,18 +277,37 @@ class KrogerClient:
 
     def get_product(self, product_id: str, location_id: str) -> Optional[dict]:
         """One raw Kroger product by UPC/productId, priced for one store, or None if Kroger has no such product."""
-        resp = requests.get(
-            f"{BASE_URL}/products/{product_id}",
-            params={"filter.locationId": location_id},
-            headers={"Authorization": f"Bearer {self._get_token()}", "Accept": "application/json"},
-            timeout=REQUEST_TIMEOUT,
-        )
+        resp = self._request(f"/products/{product_id}", {"filter.locationId": location_id})
         if resp.status_code in (400, 404):
             return None
-        if resp.status_code == 429:
-            raise KrogerError("Kroger daily rate limit reached, try again tomorrow.")
         resp.raise_for_status()
         return resp.json().get("data") or None
+
+    def get_products(self, product_ids: List[str], location_id: str) -> dict:
+        """Raw Kroger products for many UPCs at one store, ``{upc: product}``.
+
+        Asks for up to 50 UPCs per call. UPCs Kroger doesn't know are
+        simply absent from the result; ones it knows but the store doesn't
+        sell come back without a price (``to_price_record`` drops those).
+        """
+        ids = list(dict.fromkeys(product_ids))
+        chunks = [ids[i:i + MAX_IDS_PER_CALL] for i in range(0, len(ids), MAX_IDS_PER_CALL)]
+
+        def fetch(chunk):
+            return self._get("/products", {"filter.productId": ",".join(chunk), "filter.locationId": location_id})
+
+        if len(chunks) > 1:
+            with ThreadPoolExecutor(max_workers=PARALLEL_CALLS) as pool:
+                bodies = list(pool.map(fetch, chunks))
+        else:
+            bodies = [fetch(c) for c in chunks]
+        found = {}
+        for body in bodies:
+            for product in body.get("data") or []:
+                upc = product.get("upc") or product.get("productId")
+                if upc:
+                    found[upc] = product
+        return found
 
     def price_search(self, term: str, location_id: str, limit: int = 10) -> List[dict]:
         """Price records for a search term at one store, unpriced products dropped."""
@@ -466,7 +526,8 @@ def _dietary_flags(product: dict, ingredients: str) -> dict:
 
 
 def to_food_item(
-    product: dict, location_id: str = "", location_name: str = "", max_daily: int = 2, kind: str = ""
+    product: dict, location_id: str = "", location_name: str = "", max_daily: int = 2, kind: str = "",
+    use_promo: bool = False,
 ) -> Optional[FoodItem]:
     """One priced, labeled Kroger product as a FoodItem for one serving, or None if it can't be built honestly.
 
@@ -474,6 +535,9 @@ def to_food_item(
     the cost of the food eaten, not the cash needed at the register: a
     plan that uses one serving from a 30-serving canister of oats still
     means buying the canister. The package price is kept in ``notes``.
+
+    The regular shelf price is used unless ``use_promo`` is set: a sale
+    ends, and a plan built on it quietly gets more expensive next week.
     """
     record = to_price_record(product, location_id)
     nutrition = parse_nutrition(product)
@@ -485,13 +549,19 @@ def to_food_item(
 
     categories = product.get("categories") or []
     page = (product.get("productPageURI") or "").split("?")[0]
-    sale = f", on sale from ${record['regular_price']:.2f}" if record["on_sale"] else ""
+    package_price = record["price"] if use_promo else record["regular_price"]
+    if not record["on_sale"]:
+        sale = ""
+    elif use_promo:
+        sale = f", on sale from ${record['regular_price']:.2f}"
+    else:
+        sale = f", on sale for ${record['price']:.2f} (sale price not used)"
     return FoodItem(
         name=record["description"],
         category=categories[0] if categories else "Grocery",
         source="Kroger API",
         location=location_name or location_id,
-        price=round(record["price"] / servings, 2),
+        price=round(package_price / servings, 2),
         serving_unit=nutrition["serving_label"] or "1 serving",
         calories=nutrition["calories"],
         protein=nutrition["protein"],
@@ -502,10 +572,18 @@ def to_food_item(
         max_daily=max_daily,
         confidence="external_api",
         notes=(
-            f"UPC {record['upc']}. {record['size']} package at ${record['price']:.2f}{sale}, "
+            f"UPC {record['upc']}. {record['size']} package at ${package_price:.2f}{sale}, "
             f"{round(servings, 1):g} serving(s), priced {record['fetched_at'][:10]}."
         ),
         source_url=f"https://www.kroger.com{page}" if page else "",
         kind=kind,
         **_dietary_flags(product, nutrition["ingredients"]),
     )
+
+
+def passes_screen(item: FoodItem) -> bool:
+    """False for an item whose macros per dollar are implausible, a label or size mismatch upstream."""
+    if item.price <= 0:
+        return False
+    return (item.protein / item.price <= MAX_PROTEIN_PER_DOLLAR
+            and item.calories / item.price <= MAX_CALORIES_PER_DOLLAR)

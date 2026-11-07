@@ -1,6 +1,7 @@
-# Grocery data: design
+# Grocery data
 
-Status: agreed design, not built yet (2026-11-04).
+Status: built (2026-11-04). The first live refresh ran ok: 53 API calls,
+1,684 products active at Ralphs Fresh Fare La Jolla (`70300108`).
 
 ## Why it looks like this
 
@@ -9,159 +10,137 @@ forbid building databases or permanent copies of API content, or caching it
 longer than the cache header allows, unless the content owner expressly
 permits it. The Products and Locations APIs send no `Cache-Control`,
 `Expires` or `ETag` header (checked 2026-11-04). Section 5e also forbids
-redistributing or publicly displaying the content, and Section 8b requires
-deleting stored content when the terms end.
+redistributing or publicly displaying the content, Section 8b requires
+deleting stored content when the terms end, and Section 4b says credentials
+may not be embedded in open source projects (`.env` is gitignored).
 
-So the design splits the data by who owns it:
+So the data is split by who owns it:
 
-| Data | Source | Stored? |
-|---|---|---|
-| Ingredient-to-UPC pins, product kinds, stores we use, refresh log | ours | yes, in `grocery.db` |
-| Nutrition, product name, brand, size, allergens | USDA FoodData Central (public domain) and Open Food Facts (ODbL, attribution required) | yes, in `grocery.db`, with history |
-| Price (regular and promo), stock level | Kroger Products API | **no**: fetched live, cached in memory only |
+| Data | Where it lives |
+|---|---|
+| UPCs we track, the kind each counts as, when each was last on the shelf, catalog search terms, ingredient-to-UPC pins, refresh log | ours: `grocery.db` |
+| Price (regular and promo), name, size, nutrition label, allergens, stock | Kroger's: fetched live, held in memory only, for up to 12 hours |
 
-We are also asking Kroger for written permission to cache prices for
-personal use (see "Kroger permission" below). If they grant it, the
-`price_history` table below gets turned on and nothing else changes shape.
+One Kroger call returns price and label together, 50 products at a time,
+so the whole catalog is ~34 calls (about 8 seconds cold, fetched 4 at a
+time) and every tracked product stays covered. USDA FoodData Central and
+Open Food Facts were considered for nutrition and dropped: they'd lose
+store-brand coverage and need a USDA key, and with no live Kroger price a
+grocery item can't be planned anyway.
 
 ## Where it lives
 
-- A separate SQLite file, `grocery.db`, in `%LOCALAPPDATA%\AutoEat\`, so
-  OneDrive never syncs a live database. Override with `AUTOEAT_GROCERY_DB`.
-- WAL mode. Kept apart from `webapp/data/app.db`: the catalog can be rebuilt
-  from its sources at any time, while accounts can't.
-- Never committed. Tests use a small synthetic fixture.
+- `grocery.db`, a separate SQLite file in `~/.autoeat/`
+  (`C:\Users\super\.autoeat`), so OneDrive never syncs a live database.
+  Override with `AUTOEAT_GROCERY_DB`. Not `%LOCALAPPDATA%`: Windows
+  redirects AppData writes from packaged apps (the Claude desktop app is
+  one) into a private folder that Task Scheduler and the web app can't see.
+  WAL mode. `refresh.log` (rotating, 5 x 1 MB) sits next to it.
+- Kept apart from `webapp/data/app.db`: the catalog can be rebuilt any
+  time, accounts can't.
+- Never committed. Tests use `tests/grocery_fixture.py`, a synthetic
+  catalog of 129 made-up products shaped like Kroger responses.
 
-## Schema
+## Schema (`src/macro_optimizer/grocery_db.py`)
 
 ```
-stores           location_id PK, chain, name, address, active
-products         gtin PK (14-digit, check digit included), name, brand,
-                 size_text, size_qty, size_unit, category, servings_per_pkg,
-                 nutrition JSON, allergens JSON, vegetarian, vegan,
-                 gluten_free, halal, contains_pork,
-                 nutrition_source ('usda' | 'off'), source_ref,
-                 first_seen, last_seen, status ('active' | 'missing' | 'discontinued')
-nutrition_history gtin, source, nutrition JSON, observed_at
-                 (a row only when the label changes)
-product_kinds    gtin, kind            -- many-to-many, the dedupe point
-catalog_terms    kind, search_term, daily_cap, active
-ingredient_pins  ingredient_id, gtin, location_id (NULL = any store), note,
-                 last_verified_at, verified_status
-refresh_runs     id, started_at, finished_at, status ('ok' | 'partial' | 'failed'),
-                 calls_by_source JSON, counts JSON, errors JSON
-
--- Disabled until Kroger grants permission:
-price_history    gtin, location_id, regular_price, promo_price, stock_level,
-                 first_seen_at, last_seen_at   -- a row only on change
+stores          location_id PK, chain, name, address, active, added_at
+products        upc PK (Kroger's 13-digit id), kind, status, first_seen, last_seen
+                status: active | missing | discontinued
+catalog_terms   term PK, active
+ingredient_pins ingredient_id PK, upc, search_term, each_grams, note,
+                last_verified_at, verified_status (ok | not_carried)
+refresh_runs    id, location_id, started_at, finished_at,
+                status (running | ok | partial | failed), api_calls, counts JSON, errors JSON
 ```
 
-### UPC/GTIN join
+A product's kind is set when first discovered and never moved, so the
+optimizer's per-kind cap (`optimizer.KIND_DAILY_CAP`) stays stable.
 
-Kroger's `productId`/`upc` is 13 digits **without** the check digit
-(`0007411700094`). USDA `gtinUpc` and Open Food Facts barcodes include it.
-Products are keyed by the full 14-digit GTIN: compute the GS1 check digit for
-Kroger IDs, zero-pad the others, and convert back when calling Kroger.
+## Reading it (`src/macro_optimizer/market.py`)
 
-## How the catalog is built
+- `database.load_market_items(location_id=None, use_promo=None)` returns
+  the same FoodItem dicts as before: every `active` product, fetched live,
+  built with `kroger.to_food_item`, screened by `kroger.passes_screen`
+  (implausible macros per dollar), deduped by name.
+- `recipes.load_ingredient_db()` reprices each pinned ingredient live and
+  sets its `price_source`. Unpinned ingredients, pins the store doesn't
+  carry today, and any Kroger outage fall back to the prices in
+  `ingredients.json`. `load_ingredient_db(live=False)` skips Kroger.
+- **Regular price by default.** Sale prices are used only with
+  `use_promo=True` or `AUTOEAT_USE_SALE_PRICES=1`. Notes say when a sale was
+  ignored. On the first run, 467 of 1,601 items were on sale.
+- If Kroger is unreachable, there are no credentials, or there is no
+  database yet, the grocery catalog is empty and `market.status()` says why.
+  Recipes keep working.
 
-The catalog comes from sources we're allowed to store, not from Kroger
-search results:
+## Refreshing it (`py -m macro_optimizer.refresh`)
 
-1. For each `catalog_terms` row, search USDA branded foods and Open Food
-   Facts, keep products with a usable label, and upsert them by GTIN.
-2. Kroger is only asked about GTINs already in the catalog: whether the store
-   carries each one and what it costs. That answer lives in memory only.
-3. A product the store doesn't carry is still kept (other stores may), but
-   it's filtered out when planning for that store.
-
-Expect lower coverage than today's 1,361 Kroger-searched items: some
-store-brand products have no USDA/OFF record. The first build reports the
-match rate per kind so we can see what got lost.
-
-## Live prices
-
-- `prices.get(location_id, gtins)` calls the Kroger Products API in batches
-  by `filter.productId` (batch size to be confirmed against the API docs)
-  and returns regular price, promo price, size and stock level.
-- An in-process cache with a 12-hour TTL, never written to disk. The first
-  plan of the day pays a few dozen calls, and later plans reuse them.
-- The optimizer plans with the **regular** price. The promo price is used
-  only when the user turns on "use sale prices".
-- If Kroger is unreachable, planning still works: it falls back to the
-  `price_per_unit` already in `ingredients.json` for recipes, and leaves
-  grocery products out, with a banner saying prices are unavailable.
-
-## Scheduler
-
-Windows Task Scheduler runs `py -m macro_optimizer.refresh` daily at about
-5am, with "run as soon as possible after a missed start" on.
+```
+init --location 70300108 [--import-catalog kroger_items.json]   # once
+run [--budget 1000] [--quiet]                                    # daily
+status
+pin <ingredient> <upc> [--each-grams N]
+stores --zip 92037 --chain RALPHS
+schedule [--at 05:00] [--install]
+```
 
 Each run:
-1. Refreshes nutrition and product details from USDA and Open Food Facts
-   for every catalog term (searches) and every active product (by GTIN).
-2. Verifies each ingredient pin is still carried at its store (live Kroger
-   call) and records only `last_verified_at` and `verified_status`.
-3. Updates `status`: not found in any source for 14 days becomes `missing`
-   (excluded), 60 days becomes `discontinued` (kept, never hard-deleted).
-   Terms whose search failed this run don't count toward `missing`.
-4. Writes a `refresh_runs` row and appends to a rotating log next to the
-   database.
+1. Searches every active catalog term (one call each, 50 results) and
+   records products with a price and a usable label.
+2. Looks up every other `active` or `missing` product by UPC, and records
+   the ones still sold.
+3. Verifies each ingredient pin is carried.
+4. Only if nothing failed: products unseen for 14 days become `missing`
+   (no longer offered), unseen for 60 days `discontinued`. Rows are never
+   deleted, and a product seen again becomes `active`.
 
-Retries: exponential backoff on 429 and 5xx, 3 tries per call, and a call
-budget per source per run. Each term is written in its own transaction, so a
-failed run leaves the previous data live.
+Calls retry 3 times with backoff on timeouts, dropped connections and
+5xx. A 429 (daily limit) stops the run. Each run has a call budget
+(default 1,000; a normal run uses ~55 of Kroger's ~10,000 daily product
+calls). The run row and the log record status, call count, counts and
+errors. Exit code 0 ok, 2 partial, 1 failed.
 
-USDA's default `DEMO_KEY` is too limited for a daily job, so a free
-`USDA_FDC_API_KEY` goes in `.env`.
-
-## How the code reads it
-
-- `database.load_market_items(location_id)` returns the same dicts as today:
-  catalog rows from `grocery.db` joined with live prices. `channels.py`,
-  `webapp/app.py` and the optimizer don't change.
-- Ingredient pricing reads pins from `grocery.db` and prices from the live
-  cache. The number in `ingredients.json` is a fallback only, so
-  `pull_kroger_prices.py --apply` goes away.
-- `scripts/build_kroger_catalog.py` and `scripts/pull_kroger_prices.py`
-  become `macro_optimizer.refresh` subcommands: `refresh`, `pin`, `status`.
-- Tests run against a temporary `grocery.db` seeded from a small synthetic
-  fixture, with the Kroger price call stubbed. Tests that count the real
-  catalog switch to the fixture.
+`schedule --install` writes `run_refresh.pyw` next to the database and
+registers a daily 5am Task Scheduler job that runs it with `pythonw`, so no
+window opens. The launcher pins the checkout it was installed from, so
+re-run `schedule --install` once the code moves (for example after this
+branch is merged into main). The job is set to catch up after a missed
+start and to run on battery.
 
 ## Stores
 
-The schema handles any number of stores. One is active for now: Ralphs
-Fresh Fare La Jolla, `70300108`. Letting each user pick a store comes later.
+The schema handles any number of stores; `load_market_items` takes a
+`location_id`. One is active for now. Letting each user pick a store comes
+later.
 
 ## Kroger permission and partner access
 
 The developer catalog (developer.kroger.com/api-products) lists 8 Partner
-APIs next to the 5 Public ones, including **Catalog API V2**. Its endpoints
-are built for keeping a synced copy of the catalog:
+APIs next to the 5 Public ones, including **Catalog API V2**, whose
+endpoints are built for keeping a synced copy of the catalog:
 
-- `GET /catalog/v2/products`: search by up to 50 UPCs per call and a
-  `filter.updatedAt.range`, so only changed products are fetched.
-- `GET /catalog/v2/products-inventory`: stock level, fulfillment and active
-  promotions per store, filterable by when stock or fulfillment changed.
+- `GET /catalog/v2/products`: up to 50 UPCs per call, filterable by
+  `filter.updatedAt.range` so only changed products are fetched.
+- `GET /catalog/v2/products-inventory`: stock, fulfillment and active
+  promotions per store, filterable by when they changed.
 - `GET /catalog/v2/deleted-items`: products disabled in a date range
-  (2-day maximum), so discontinued items can be dropped exactly.
+  (2-day maximum).
 
-How to get partner access, and whether partners sign data terms that differ
-from the public Terms of Service, isn't stated on the page. The only contact
-listed is APISupport@kroger.com.
+How to get partner access, and whether partners sign different data
+terms, isn't stated. The listed contact is APISupport@kroger.com.
 
-Plan: email APISupport@kroger.com asking (1) whether a personal project can
-get Catalog API V2 or partner Product API access and (2) for written
-permission to keep a private local cache of prices, including history,
-either way. If granted: record the date and the wording here, enable
-`price_history`, and switch the daily job to Catalog V2 delta syncs
-(`updatedAt` for changes, `deleted-items` for discontinued products). The
-storage design above already fits that.
+Plan: ask APISupport@kroger.com (1) whether a personal project can get
+Catalog API V2 or partner Product API access, and (2) for written
+permission to keep a private local cache of prices, with history, either
+way. If granted: record the date and wording here, add a `price_history`
+table (upc, location_id, regular_price, promo_price, stock_level,
+first_seen_at, last_seen_at; a row only when the price changes), and
+switch the refresh to Catalog V2 delta syncs.
 
-## Existing data to clean up
+## Leftover Kroger content to delete
 
-`src/macro_optimizer/data/kroger_items.json` (about 1.2 MB, never committed)
-and `data_snapshots/` are stored Kroger content. Once the new catalog is
-built, delete them and add `kroger_items.json` to `.gitignore` in the
-meantime. Nothing has been deleted yet.
+`src/macro_optimizer/data/kroger_items.json` (gitignored) and
+`data_snapshots/` are stored copies of Kroger content. The UPCs and kinds
+have been imported into `grocery.db`, so both can be deleted, along with
+the Kroger prices written into the main checkout's `ingredients.json`.
