@@ -1048,18 +1048,24 @@ table.data-table tr.expired td:first-child { box-shadow: inset 4px 0 0 var(--tom
 
 .swipe-progress { font-family: var(--font-mono); font-size: 11.5px; letter-spacing: 0.1em; color: var(--ink-3); text-align: center; margin-bottom: 4px; font-variant-numeric: tabular-nums; min-height: 17px; }
 
-.swipe-stack { min-height: 176px; display: flex; align-items: stretch; justify-content: center; margin-bottom: 16px; filter: var(--shadow-lift); }
+.swipe-stack { min-height: 420px; display: flex; align-items: stretch; justify-content: center; margin-bottom: 16px; filter: var(--shadow-lift); }
 
 .swipe-loading { margin: auto; color: var(--ink-3); font-family: var(--font-mono); font-size: 12.5px; }
 
 .swipe-card-face {
-  flex: 0 1 340px;
-  text-align: center;
+  flex: 0 1 320px;
+  min-width: 0;
+  text-align: left;
   transform: rotate(-1.4deg);
   animation: deal 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.22s;
   background: var(--paper);
   --zz: 6px;
-  padding: 36px 20px calc(22px + var(--zz));
+  padding: 32px 14px calc(16px + var(--zz));
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
   -webkit-mask:
     radial-gradient(circle 6px at 50% 16px, #0000 96%, #000),
     conic-gradient(from -45deg at bottom, #0000, #000 1deg 89deg, #0000 90deg) 50% / calc(2 * var(--zz)) 100%;
@@ -1070,14 +1076,87 @@ table.data-table tr.expired td:first-child { box-shadow: inset 4px 0 0 var(--tom
   mask-composite: intersect;
 }
 
+.swipe-card-face.is-dragging { transition: none; cursor: grabbing; animation: none; }
+.swipe-card-face.is-leaving-right { transform: translateX(120%) rotate(14deg); opacity: 0; animation: none; }
+.swipe-card-face.is-leaving-left { transform: translateX(-120%) rotate(-14deg); opacity: 0; animation: none; }
+
 @keyframes deal {
   from { opacity: 0; transform: translateY(12px) rotate(3deg); }
   to { opacity: 1; transform: rotate(-1.4deg); }
 }
 
-.swipe-card-name { font-family: var(--font-display); font-size: 25px; font-weight: 800; letter-spacing: -0.035em; line-height: 1.02; color: var(--ink); margin-bottom: 8px; text-wrap: balance; }
-.swipe-card-source { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 12px; }
-.swipe-card-meta { font-family: var(--font-mono); font-size: 12.5px; color: var(--ink-2); border-top: 1px dashed var(--rule-strong); padding-top: 11px; }
+/* Product shots are shown whole on white, never cropped: Kroger's API
+   terms bar modifying their images, and a packshot reads best uncut. */
+.swipe-card-photo {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  border-radius: var(--radius-sm);
+  background: #fff;
+  border: 1px solid var(--rule);
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  transition: box-shadow 0.12s;
+}
+
+.swipe-card-photo img { width: 100%; height: 100%; object-fit: contain; padding: 14px; pointer-events: none; }
+
+.swipe-card-face[data-lean="like"] .swipe-card-photo { box-shadow: inset 0 0 0 3px var(--herb); }
+.swipe-card-face[data-lean="dislike"] .swipe-card-photo { box-shadow: inset 0 0 0 3px var(--tomato); }
+
+.swipe-card-credit {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.86);
+  color: #5b554a;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+}
+
+/* Recipes (and any photo that fails to load) get a styled stand-in tinted
+   by cuisine, captioned with the dish's main ingredients. */
+.swipe-photo-placeholder {
+  --tint: var(--ink-3);
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 78% 22%, color-mix(in srgb, var(--tint) 38%, transparent) 0 22%, transparent 23%),
+    repeating-linear-gradient(-45deg, transparent 0 11px, color-mix(in srgb, var(--tint) 9%, transparent) 11px 12px),
+    color-mix(in srgb, var(--tint) 16%, var(--ticket));
+}
+.swipe-photo-placeholder[data-cuisine="american"] { --tint: var(--mustard); }
+.swipe-photo-placeholder[data-cuisine="mexican"] { --tint: var(--tomato); }
+.swipe-photo-placeholder[data-cuisine="italian"] { --tint: var(--herb); }
+.swipe-photo-placeholder[data-cuisine="asian"] { --tint: var(--plum); }
+.swipe-photo-placeholder[data-cuisine="mediterranean"] { --tint: #2f7fa8; }
+
+.swipe-ph-eyebrow { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); }
+.swipe-ph-hint { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); text-wrap: balance; }
+
+.swipe-card-body { padding: 12px 2px 0; }
+.swipe-card-title {
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: var(--ink);
+  text-wrap: balance;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.swipe-card-context { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--rule-strong); font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2); }
 
 .swipe-actions { display: flex; justify-content: center; gap: 22px; margin-bottom: 12px; }
 

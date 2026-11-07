@@ -466,6 +466,29 @@ def _dietary_flags(product: dict, ingredients: str) -> dict:
     )
 
 
+# Kroger's own size names, largest first. "large" is ~500px, plenty for a
+# swipe card without pulling the multi-megabyte xlarge shot.
+_IMAGE_SIZE_PREFERENCE = ("large", "medium", "xlarge", "small", "thumbnail")
+
+
+def product_image_url(product: dict, perspective: str = "front") -> str:
+    """The product's photo URL from its ``images`` array, or "" if it has none.
+
+    Prefers the ``perspective`` shot (the package front), then whichever
+    image Kroger marks ``featured``, then any image at all; within that
+    image, the size in ``_IMAGE_SIZE_PREFERENCE`` order.
+    """
+    images = [img for img in (product.get("images") or []) if img.get("sizes")]
+    if not images:
+        return ""
+    images.sort(key=lambda img: (img.get("perspective") != perspective, not img.get("featured")))
+    sizes = {s.get("size"): s.get("url") for s in images[0]["sizes"] if s.get("url")}
+    for size in _IMAGE_SIZE_PREFERENCE:
+        if sizes.get(size):
+            return sizes[size]
+    return next(iter(sizes.values()), "")
+
+
 def to_food_item(
     product: dict, location_id: str = "", location_name: str = "", max_daily: int = 2, kind: str = ""
 ) -> Optional[FoodItem]:
@@ -509,5 +532,6 @@ def to_food_item(
         source_url=f"https://www.kroger.com{page}" if page else "",
         kind=kind,
         display_name=display_name_for(record["description"], record["brand"], record["upc"]),
+        image_url=product_image_url(product),
         **_dietary_flags(product, nutrition["ingredients"]),
     )
