@@ -1115,6 +1115,11 @@ table.data-table tr.expired td:first-child { box-shadow: inset 4px 0 0 var(--tom
   font-family: var(--font-mono);
   font-size: 9.5px;
   letter-spacing: 0.04em;
+  max-width: calc(100% - 12px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
 }
 
 /* Recipes (and any photo that fails to load) get a styled stand-in tinted
@@ -1139,6 +1144,10 @@ table.data-table tr.expired td:first-child { box-shadow: inset 4px 0 0 var(--tom
 .swipe-photo-placeholder[data-cuisine="asian"] { --tint: var(--plum); }
 .swipe-photo-placeholder[data-cuisine="mediterranean"] { --tint: #2f7fa8; }
 
+.swipe-ph-emoji { margin: auto; font-size: 72px; line-height: 1; filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.12)); }
+/* Concept cards show dish photos, not packshots: fill the frame. */
+.swipe-card-photo.is-concept img { object-fit: cover; padding: 0; }
+.swipe-card-prompt { margin-bottom: 4px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-3); }
 .swipe-ph-eyebrow { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-2); }
 .swipe-ph-hint { font-family: var(--font-display); font-size: 22px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; color: var(--ink); text-wrap: balance; }
 

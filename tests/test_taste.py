@@ -197,3 +197,119 @@ def test_display_name_strips_mis_decoded_trademark_signs():
     assert display_name("Joseph'sâ„¢ Flax Pita") == "Joseph's Flax Pita"
     assert display_name("Boarâ€™s Head Turkey") == "Boar's Head Turkey"
     assert display_name("Kroger® 100% Whole Wheat Bread") == "Kroger 100% Whole Wheat Bread"
+
+
+# --- concept cards ------------------------------------------------------
+
+from macro_optimizer.taste import (  # noqa: E402
+    CONCEPT_PREFIX,
+    CUISINES,
+    FLAVORS,
+    FORMAT_SLOTS,
+    FORMATS,
+    MEALS,
+    PROCESSING,
+    PROTEINS,
+    concept_pool,
+    load_concepts,
+)
+
+
+@pytest.fixture(scope="module")
+def concepts():
+    return load_concepts()
+
+
+@pytest.fixture(scope="module")
+def cmodel(catalog, concepts):
+    return TasteModel(catalog + concepts)
+
+
+def _c(cid):
+    return CONCEPT_PREFIX + cid
+
+
+def _sim(model, a, b):
+    return float(model.similarity[model.index[a], model.index[b]])
+
+
+def test_every_concept_tag_is_in_the_models_vocabulary(concepts):
+    ids = [c["concept"]["id"] for c in concepts]
+    assert len(ids) == len(set(ids))
+    dishes = [c["concept"] for c in concepts if c["concept"]["card"] == "dish"]
+    formats = [c["concept"] for c in concepts if c["concept"]["card"] == "format"]
+    assert len(dishes) >= 60 and 3 <= len(formats) <= 6
+    for d in dishes:
+        assert d["meal"] in MEALS and d["cuisine"] in CUISINES, d["id"]
+        assert d["flavor"] and set(d["flavor"]) <= set(FLAVORS), d["id"]
+        assert d["protein"] and set(d["protein"]) <= set(PROTEINS), d["id"]
+        assert d["kcal"] > 0 and min(d["p"], d["c"], d["f"]) >= 0, d["id"]
+        assert not (d["vegan"] and not d["veg"]), d["id"]
+        assert d["veg"] == (not set(d["protein"]) & {"chicken", "beef", "turkey", "pork", "fish"}), d["id"]
+    for f in formats:
+        assert f["format"] and set(f["format"]) <= set(FORMATS), f["id"]
+        assert f["processing"] and set(f["processing"]) <= set(PROCESSING), f["id"]
+
+
+def test_concepts_leave_catalog_to_catalog_similarity_unchanged(model, cmodel):
+    a, b = model.names[0], model.names[200]
+    assert _sim(cmodel, a, b) == pytest.approx(_sim(model, a, b), abs=1e-5)
+
+
+def test_dish_and_format_cards_are_unrelated(cmodel):
+    assert _sim(cmodel, _c("chicken_tacos"), _c("frozen_meals")) == 0.0
+
+
+def test_a_dish_card_ignores_packaging_and_a_format_card_ignores_cuisine(cmodel):
+    frozen_pizza = _first_of_kind(cmodel, "frozen pizza")
+    frozen_burrito = _first_of_kind(cmodel, "frozen burrito")
+    # The pizza card can't tell a frozen pizza from fresh, so cheese pizzas are a strong match.
+    pizzas = [n for n in cmodel.names if _kind(cmodel, n) == "frozen pizza"]
+    assert max(_sim(cmodel, _c("margherita_pizza"), p) for p in pizzas) > 0.85
+    # Frozen meals reach frozen pizza and frozen burritos alike.
+    assert _sim(cmodel, _c("frozen_meals"), frozen_pizza) == pytest.approx(1.0)
+    assert _sim(cmodel, _c("frozen_meals"), frozen_burrito) == pytest.approx(1.0)
+    assert _sim(cmodel, _c("frozen_meals"), _first_of_kind(cmodel, "baby carrots")) < 0.1
+
+
+def test_concept_answers_never_appear_in_the_bonus(cmodel):
+    bonus = cmodel.propagate([Answer(_c("pancakes"), True), Answer(_c("bars_shakes"), False)], 2.0)
+    assert bonus and not any(n.startswith(CONCEPT_PREFIX) for n in bonus)
+    assert bonus.get(_first_of_kind(cmodel, "protein bar"), 0) < -1.0
+
+
+def test_concept_pool_reserves_format_slots_and_falls_back_to_dishes(cmodel, concepts):
+    names = [c["name"] for c in concepts]
+    fmt = lambda n: cmodel.items[cmodel.index[n]]["concept"]["card"] == "format"
+    assert not any(fmt(n) for n in concept_pool(names, cmodel, []))
+    slot = FORMAT_SLOTS[0]
+    answers = [Answer(n, True) for n in names[:slot]]
+    assert all(fmt(n) for n in concept_pool(names, cmodel, answers))
+    all_formats = [Answer(n, True) for n in names if fmt(n)]
+    padded = all_formats + [Answer(n, True) for n in names if not fmt(n)][: slot - len(all_formats)] if slot >= len(all_formats) else all_formats
+    pool = concept_pool(names, cmodel, padded)
+    assert pool and not any(fmt(n) for n in pool)
+    assert not set(pool) & {a.name for a in padded}
+
+
+def test_coverage_counts_only_catalog_items(cmodel):
+    assert cmodel.coverage([]) == 0.0
+    assert 0 < cmodel.coverage([Answer(_c("chicken_stir_fry"), True)]) < 1
+
+
+def test_concept_photos_are_openly_licensed_attributed_and_on_disk(concepts):
+    import re
+    from pathlib import Path
+
+    static = Path(__file__).resolve().parents[1] / "webapp" / "static"  # served at the site root
+    for item in concepts:
+        image = item["concept"].get("image")
+        if image is None:
+            continue  # styled placeholder
+        cid = item["concept"]["id"]
+        assert image["url"].startswith("/img/concepts/"), cid
+        assert (static / image["url"].lstrip("/")).is_file(), cid
+        assert image["page"].startswith("https://commons.wikimedia.org/"), cid
+        assert image["author"] and image["source"] == "Wikimedia Commons", cid
+        assert re.match(r"(CC0|Public domain|PD|CC BY(-SA)? \d)", image["license"], re.I), (cid, image["license"])
+        assert item["image_url"] == image["url"], cid

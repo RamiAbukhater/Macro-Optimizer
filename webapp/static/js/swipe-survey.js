@@ -40,8 +40,19 @@ window.swipeSurvey = {
     section.style.display = "none";
   }
 
+  // Diet checkboxes from the profile form, if the user has ticked any yet:
+  // cards they can't eat (a pork dish for a halal user) are never dealt.
+  function dietFilters() {
+    const out = {};
+    for (const key of ["vegetarian", "vegan", "halal", "no_pork"]) {
+      const box = document.getElementById(`f-${key}`);
+      if (box && box.checked) out[key] = true;
+    }
+    return out;
+  }
+
   function fetchNext(answers) {
-    return postJSON("/api/swipe-cards/next", { answers, seed });
+    return postJSON("/api/swipe-cards/next", { answers, seed, filters: dietFilters() });
   }
 
   function preloadImage(promise) {
@@ -65,6 +76,7 @@ window.swipeSurvey = {
     const ph = card.placeholder || {};
     const node = el("div", "swipe-photo-placeholder");
     node.dataset.cuisine = ph.cuisine || "none";
+    if (ph.emoji) node.appendChild(el("span", "swipe-ph-emoji", "")).textContent = ph.emoji;
     node.appendChild(el("span", "swipe-ph-eyebrow", "")).textContent =
       ph.cuisine && ph.cuisine !== "none" ? ph.cuisine : (ph.flavor || "");
     node.appendChild(el("span", "swipe-ph-hint", "")).textContent = ph.hint || "";
@@ -73,6 +85,7 @@ window.swipeSurvey = {
 
   function photo(card) {
     const frame = el("div", "swipe-card-photo");
+    if (card.category === "Concept") frame.classList.add("is-concept");
     if (card.image_url) {
       const img = document.createElement("img");
       img.alt = card.title;
@@ -84,7 +97,17 @@ window.swipeSurvey = {
       }, { once: true });
       frame.appendChild(img);
       if (card.image_credit) {
-        frame.appendChild(el("span", "swipe-card-credit", "")).textContent = `Image: ${card.image_credit}`;
+        // Openly licensed photos need visible attribution with a link back.
+        const credit = card.image_credit_url ? document.createElement("a") : el("span", "", "");
+        credit.className = "swipe-card-credit";
+        credit.textContent = `Image: ${card.image_credit}`;
+        credit.title = credit.textContent; // the line truncates on narrow cards
+        if (card.image_credit_url) {
+          credit.href = card.image_credit_url;
+          credit.target = "_blank";
+          credit.rel = "noopener";
+        }
+        frame.appendChild(credit);
       }
     } else {
       frame.appendChild(placeholder(card));
@@ -111,6 +134,7 @@ window.swipeSurvey = {
     const face = el("div", "swipe-card-face");
     face.appendChild(photo(card));
     const body = el("div", "swipe-card-body");
+    if (card.prompt) body.appendChild(el("div", "swipe-card-prompt", "")).textContent = card.prompt;
     body.appendChild(el("div", "swipe-card-title", "")).textContent = card.title;
     body.appendChild(el("div", "swipe-card-context", "")).textContent = card.context;
     face.appendChild(body);

@@ -764,7 +764,7 @@ def test_adjust_missing_message_returns_400(client):
 # --- swipe taste survey ---
 
 
-def test_api_swipe_cards_returns_a_sample_of_unique_items(client):
+def test_api_swipe_cards_returns_a_deck_of_unique_concept_cards(client):
     resp = client.get("/api/swipe-cards")
     assert resp.status_code == 200
     cards = resp.get_json()["cards"]
@@ -772,7 +772,8 @@ def test_api_swipe_cards_returns_a_sample_of_unique_items(client):
     names = [c["name"] for c in cards]
     assert len(names) == len(set(names))
     for card in cards:
-        for key in ("name", "source", "price", "calories", "protein", "carbs", "fat"):
+        assert card["name"].startswith("concept:") and card["category"] == "Concept"
+        for key in ("title", "prompt", "card_type", "context", "image_url", "placeholder"):
             assert key in card
 
 
@@ -813,30 +814,101 @@ def test_swipe_survey_taste_profile_persists_across_requests(client):
     assert bonus["Banana"] < 0
 
 
-def test_api_swipe_cards_deck_is_spread_across_kinds_and_carries_card_fields(client):
+def test_api_swipe_cards_deck_mixes_a_few_format_cards_into_mostly_dishes(client):
     cards = client.get("/api/swipe-cards").get_json()["cards"]
-    contexts = [c["context"].split(" · ")[0] for c in cards]
-    assert len(set(contexts)) == len(contexts)  # no two cards of the same kind
+    types = [c["card_type"] for c in cards]
+    assert 3 <= types.count("format") <= 5
+    assert "format" in types[:8]
+    assert len({c["title"] for c in cards}) == len(cards)
     for card in cards:
         assert card["title"] and card["context"]
-        assert "image_url" in card and "placeholder" in card
+        assert "$" not in card["context"]  # taste, not price
 
 
 def test_api_swipe_cards_next_deals_one_informative_card_at_a_time(client):
     first = client.post("/api/swipe-cards/next", json={"answers": [], "seed": 3}).get_json()
     assert first["done"] is False and first["answered"] == 0
     card = first["card"]
-    assert card["title"] and "$" in card["context"]
-    assert card["image_url"].startswith("https://www.kroger.com/")
-    assert card["image_credit"] == "Kroger"
+    assert card["title"] and card["prompt"] == "Would you eat this?"
+    assert card["card_type"] == "dish"
+    # An openly licensed photo with a linked credit, and the emoji placeholder as fallback.
+    assert card["image_url"].startswith("/img/concepts/")
+    photo = client.get(card["image_url"])
+    assert photo.status_code == 200 and photo.mimetype == "image/jpeg"
+    assert card["image_credit"] and card["image_credit_url"].startswith("https://commons.wikimedia.org/")
+    assert card["placeholder"]["emoji"]
 
     second = client.post("/api/swipe-cards/next", json={
         "answers": [{"name": card["name"], "liked": True}], "seed": 3,
     }).get_json()
     assert second["card"]["name"] != card["name"]
     assert second["answered"] == 1
-    # Never a second card from the region just answered.
-    assert second["card"]["context"].split(" · ")[0] != card["context"].split(" · ")[0]
+
+
+def _run_survey(client, liked, filters=None, seed=5):
+    """Answer the adaptive survey to the end with ``liked(card)``; returns the cards dealt."""
+    answers, cards = [], []
+    while True:
+        body = client.post("/api/swipe-cards/next", json={
+            "answers": answers, "seed": seed, "filters": filters or {},
+        }).get_json()
+        if body["done"]:
+            return cards
+        cards.append(body["card"])
+        answers.append({"name": body["card"]["name"], "liked": liked(body["card"])})
+
+
+def test_adaptive_survey_deals_a_format_card_third_and_only_a_few_in_all(client):
+    cards = _run_survey(client, lambda c: "Mexican" in c["context"])
+    types = [c["card_type"] for c in cards]
+    assert types[2] == "format"
+    assert 2 <= types.count("format") <= 4
+    assert 12 <= len(cards) <= 20
+
+
+def test_diet_filters_keep_cards_the_user_cannot_eat_out_of_the_deck(client):
+    import app as app_module
+
+    concepts = {it["name"]: it["concept"] for it in app_module.taste_model().items if it.get("concept")}
+    veg_cards = _run_survey(client, lambda c: True, filters={"vegetarian": True})
+    assert all(concepts[c["name"]].get("veg", True) for c in veg_cards)
+    halal_pool = app_module.swipe_card_pool({"halal": True})
+    assert halal_pool and not any("pork" in concepts[n].get("protein", []) for n in halal_pool)
+    assert len(app_module.swipe_card_pool({"vegan": True})) < len(app_module.swipe_card_pool())
+
+
+def test_concept_swipes_score_the_catalog_and_never_leak_into_the_bonus(client):
+    bonus = client.post("/api/swipe-survey", json={"picks": [
+        {"name": "concept:chicken_tacos", "liked": True},
+        {"name": "concept:frozen_meals", "liked": False},
+    ]}).get_json()["preference_bonus"]
+    assert bonus and not any(n.startswith("concept:") for n in bonus)
+    items = {row["name"]: row for row in load_market_items()}
+    frozen_pizzas = [n for n, r in items.items() if r.get("kind") == "frozen pizza"]
+    assert sum(bonus.get(n, 0) < 0 for n in frozen_pizzas) >= len(frozen_pizzas) // 2
+    # Loving tacos but not frozen meals: a fresh chicken wrap beats a frozen chicken burrito.
+    wraps = [n for n, r in items.items() if r.get("kind") == "deli sandwich" and "Chicken" in n]
+    burritos = [n for n, r in items.items() if r.get("kind") == "frozen burrito" and "Chicken" in n]
+    assert max(bonus.get(n, 0) for n in wraps) > max(bonus.get(n, 0) for n in burritos)
+
+
+def test_recipes_get_a_bonus_through_shared_features(client):
+    bonus = client.post("/api/swipe-survey", json={"picks": [
+        {"name": "concept:chicken_stir_fry", "liked": True},
+        {"name": "concept:yogurt_parfait", "liked": False},
+    ]}).get_json()["preference_bonus"]
+    assert bonus.get("Chicken & Rice Bowl", 0) > 0.3
+    assert bonus.get("Greek Yogurt Protein Bowl", 0) < 0
+
+
+def test_legacy_product_answers_and_concept_answers_combine(client):
+    pizza = next(row["name"] for row in load_market_items() if row.get("kind") == "frozen pizza")
+    bonus = client.post("/api/swipe-survey", json={"picks": [
+        {"name": pizza, "liked": True},
+        {"name": "concept:lentil_curry", "liked": True},
+    ]}).get_json()["preference_bonus"]
+    assert bonus[pizza] == 2.0
+    assert bonus.get("Pasta Marinara with Black Beans", 0) > 0
 
 
 def test_api_swipe_cards_next_is_repeatable_for_one_seed(client):

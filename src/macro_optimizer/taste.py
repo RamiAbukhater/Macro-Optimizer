@@ -47,6 +47,20 @@ import numpy as np
 
 DATA_DIR = Path(__file__).parent / "data"
 FEATURES_PATH = DATA_DIR / "taste_features.json"
+CONCEPTS_PATH = DATA_DIR / "taste_concepts.json"
+
+# Concept cards ("Would you eat chicken stir-fry?") live in the model next to
+# the catalog under this name prefix: they are what gets swiped, catalog
+# items are what gets scored, and a concept is never sent to the optimizer.
+CONCEPT_PREFIX = "concept:"
+# The feature groups each kind of concept card speaks to. A dish says
+# nothing about how it's packaged, so a "yes" to tacos reaches fresh and
+# frozen tacos alike; a format card says nothing about cuisine, so a "no"
+# to frozen meals reaches frozen pizza and frozen curry alike. Similarity
+# between a concept and anything else is the weighted mean over just these
+# groups (shared groups, for two concepts).
+DISH_GROUPS = ("meal", "flavor", "cuisine", "protein", "macros", "density", "diet")
+FORMAT_GROUPS = ("format", "processing")
 
 FORMATS = [
     "bar", "drink", "cup", "snack", "deli_meat", "canned", "dip", "salad", "entree", "handheld",
@@ -111,6 +125,58 @@ def load_feature_labels(path: Optional[Path] = None) -> dict:
         return json.load(f)
 
 
+def load_concepts(path: Optional[Path] = None) -> List[dict]:
+    """Every concept card from ``taste_concepts.json`` as a model item (see ``concept_item``)."""
+    with open(path or CONCEPTS_PATH, encoding="utf-8") as f:
+        raw = json.load(f)
+    return [concept_item(c, "dish") for c in raw["dishes"]] + [concept_item(c, "format") for c in raw["formats"]]
+
+
+def concept_item(concept: dict, card: str) -> dict:
+    """A FoodItem-shaped dict for one concept, so TasteModel can hold it alongside catalog rows.
+
+    Format cards carry no food, so their numbers are neutral; only their
+    format and processing groups are ever compared.
+    """
+    is_dish = card == "dish"
+    return {
+        "name": CONCEPT_PREFIX + concept["id"],
+        "category": "Concept",
+        "source": "Concept",
+        "calories": float(concept.get("kcal", 400)),
+        "protein": float(concept.get("p", 0)),
+        "carbs": float(concept.get("c", 0)),
+        "fat": float(concept.get("f", 0)),
+        "price": 0.0,
+        "vegetarian": bool(concept.get("veg", not is_dish)),
+        "vegan": bool(concept.get("vegan", not is_dish)),
+        "image_url": (concept.get("image") or {}).get("url", ""),
+        "concept": {**concept, "card": card},
+    }
+
+
+def is_concept(name: str) -> bool:
+    return name.startswith(CONCEPT_PREFIX)
+
+
+def _concept_labels(concept: dict) -> dict:
+    """Labels straight from the hand tags; list-valued where a concept spans several values."""
+    if concept["card"] == "format":
+        return {
+            "format": list(concept["format"]), "processing": list(concept["processing"]),
+            "meal": "main", "flavor": ["plain"], "cuisine": "none", "protein": ["none"],
+        }
+    return {
+        "format": [], "processing": [],
+        "meal": concept["meal"], "flavor": list(concept["flavor"]),
+        "cuisine": concept["cuisine"], "protein": list(concept["protein"]),
+    }
+
+
+def _as_list(value) -> list:
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
 def _word_pattern(phrase: str) -> "re.Pattern":
     return re.compile(r"(?<![a-z])" + re.escape(phrase.lower()) + r"(?![a-z])")
 
@@ -136,8 +202,11 @@ def item_labels(item: dict, labels: dict) -> dict:
 
     Returns {"format", "meal", "cuisine", "protein", "processing": str,
     "flavor": [str, ...]}. Flavor is a list because "mango habanero beef
-    jerky" really is sweet, spicy and savory at once.
+    jerky" really is sweet, spicy and savory at once. Concept cards take
+    their hand tags as-is, list-valued where a concept spans several values.
     """
+    if item.get("concept"):
+        return _concept_labels(item["concept"])
     kinds = labels["kinds"]
     kind = item.get("kind") or ""
     base = dict(kinds.get(kind) or kinds["_default"])
@@ -203,12 +272,12 @@ def item_features(item: dict, labels: dict, kinds: List[str]) -> Dict[str, np.nd
     tags = item_labels(item, labels)
     return {
         "kind": _one_hot([_kind_key(item)], kinds),
-        "format": _one_hot([tags["format"]], FORMATS),
-        "meal": _one_hot([tags["meal"]], MEALS),
-        "flavor": _one_hot(tags["flavor"], FLAVORS),
-        "cuisine": _one_hot([tags["cuisine"]], CUISINES),
-        "protein": _one_hot([tags["protein"]], PROTEINS),
-        "processing": _one_hot([tags["processing"]], PROCESSING),
+        "format": _one_hot(_as_list(tags["format"]), FORMATS),
+        "meal": _one_hot(_as_list(tags["meal"]), MEALS),
+        "flavor": _one_hot(_as_list(tags["flavor"]), FLAVORS),
+        "cuisine": _one_hot(_as_list(tags["cuisine"]), CUISINES),
+        "protein": _one_hot(_as_list(tags["protein"]), PROTEINS),
+        "processing": _one_hot(_as_list(tags["processing"]), PROCESSING),
         "macros": _macro_shares(item),
         "density": np.array([math.log(max(item["calories"], 1.0))], dtype=np.float32),
         "price": np.array([math.log(max(item["price"], 0.05))], dtype=np.float32),
@@ -250,13 +319,25 @@ class TasteModel:
         kinds = sorted({_kind_key(it) for it in self.items})
         feats = [item_features(it, labels, kinds) for it in self.items]
 
-        total_weight = sum(GROUP_WEIGHTS.values())
+        self.is_concept = np.array([bool(it.get("concept")) for it in self.items])
+        # Which groups each item speaks to: everything for catalog items,
+        # DISH_GROUPS / FORMAT_GROUPS for concept cards.
+        masks = {
+            group: np.array([
+                (group in (DISH_GROUPS if it["concept"]["card"] == "dish" else FORMAT_GROUPS))
+                if it.get("concept") else True
+                for it in self.items
+            ], dtype=np.float32)
+            for group in GROUP_WEIGHTS
+        }
+
         self.group_similarity: Dict[str, np.ndarray] = {}
-        sim = np.zeros((len(self.items), len(self.items)), dtype=np.float32)
+        numerator = np.zeros((len(self.items), len(self.items)), dtype=np.float32)
+        denominator = np.zeros_like(numerator)
         for group, weight in GROUP_WEIGHTS.items():
             rows = np.stack([f[group] for f in feats]).astype(np.float32)
             if group in _CATEGORICAL:
-                g = _cosine_matrix(rows)
+                g = self._categorical_similarity(rows)
                 if group == "diet":
                     # Two items that are both "not vegetarian" agree on diet,
                     # but have zero vectors; cosine would call them unrelated.
@@ -266,8 +347,14 @@ class TasteModel:
                 g = _gaussian_matrix(rows, _NUMERIC_SIGMA[group])
             g = np.clip(g, 0.0, 1.0).astype(np.float32)
             self.group_similarity[group] = g
-            sim += (weight / total_weight) * g
-        self.similarity = sim
+            pair = np.outer(masks[group], masks[group])
+            numerator += weight * pair * g
+            denominator += weight * pair
+        # With no concepts every pair shares every group, so this is the plain
+        # weighted mean over GROUP_WEIGHTS. A dish card and a format card
+        # share no group and come out unrelated.
+        sim = np.divide(numerator, denominator, out=np.zeros_like(numerator), where=denominator > 0)
+        self.similarity = sim.astype(np.float32)
         self.kernel = sim ** SHARPNESS
 
         # Representativeness: mean similarity to an item's nearest
@@ -285,6 +372,30 @@ class TasteModel:
         density = density / density.max() if density.max() > 0 else np.ones_like(density)
         has_image = np.array([bool(it.get("image_url")) for it in self.items])
         self.representativeness = np.sqrt(density) * np.where(has_image, 1.0, NO_IMAGE_PENALTY)
+
+    def _categorical_similarity(self, rows: np.ndarray) -> np.ndarray:
+        """Cosine between catalog items (and between two concepts); membership between an item and a concept.
+
+        A concept's list ("chicken or beef", "frozen entree, pizza or
+        handheld") means any of these, not a blend, so an item matching one
+        of them should agree fully: the concept row stays 0/1 and is
+        dotted with the item's unit row, then clipped to 1.
+        """
+        cosine = _cosine_matrix(rows)
+        if not self.is_concept.any():
+            return cosine
+        norms = np.linalg.norm(rows, axis=1, keepdims=True)
+        unit = np.divide(rows, norms, out=np.zeros_like(rows), where=norms > 0)
+        mixed = np.where(self.is_concept[:, None], rows, unit)
+        membership = mixed @ mixed.T
+        c = self.is_concept
+        one_concept = c[:, None] ^ c[None, :]
+        return np.where(one_concept, membership, cosine)
+
+    @property
+    def targets(self) -> np.ndarray:
+        """Mask of the items a plan can pick: everything but concept cards."""
+        return ~self.is_concept
 
     # --- evidence from answers -------------------------------------------
 
@@ -384,7 +495,7 @@ class TasteModel:
     def coverage(self, answers: Sequence[Answer]) -> float:
         """Share of the catalog with real evidence nearby, in [0, 1]. Drives early stopping."""
         mass, _ = self.evidence(answers)
-        return float((mass / (PRIOR_STRENGTH + mass)).mean())
+        return float((mass / (PRIOR_STRENGTH + mass))[self.targets].mean())
 
     # --- propagation -----------------------------------------------------
 
@@ -396,21 +507,53 @@ class TasteModel:
         every answer it shrinks to 0. An answered item itself always gets
         the full +/- ``amount``. Answers for names outside the model are
         passed through at full strength so nothing a user swiped is lost.
+        Concept cards are never in the result: they aren't food a plan can pick.
         """
         mass, verdict = self.evidence(answers)
         scores = amount * verdict * mass / (mass + PRIOR_STRENGTH)
-        bonus = {self.names[i]: round(float(s), 3) for i, s in enumerate(scores) if abs(s) >= min_bonus}
+        bonus = {
+            self.names[i]: round(float(s), 3)
+            for i, s in enumerate(scores) if abs(s) >= min_bonus and not self.is_concept[i]
+        }
         latest = {}
         for a in answers:
             latest[a.name] = a.liked
         for name, liked in latest.items():
-            bonus[name] = amount if liked else -amount
+            if not is_concept(name):
+                bonus[name] = amount if liked else -amount
         return bonus
 
     def explain(self, a: str, b: str) -> Dict[str, float]:
         """Per-group similarity between two items, for debugging and "why this card" text."""
         i, j = self.index[a], self.index[b]
         return {group: round(float(m[i, j]), 3) for group, m in self.group_similarity.items()}
+
+
+# Card positions (answers so far) reserved for a format card. Format cards
+# match whole swaths of the catalog exactly (every frozen pizza is a frozen
+# entree), so on typicality alone they'd take most of the first cards; slots
+# keep them to a few, with the first guaranteed early.
+FORMAT_SLOTS = (2, 6, 10, 15)
+
+
+def concept_pool(names: Iterable[str], model: "TasteModel", answers: Sequence[Answer]) -> List[str]:
+    """The unanswered concepts eligible for the next card: a format card in FORMAT_SLOTS, dishes otherwise.
+
+    Format cards come one at a time in file order (most of the catalog
+    first: frozen, then cooking from scratch...). Each matches dozens of
+    items exactly, so typicality can't rank them, and a 12-card survey only
+    has room for three. Falls back to dishes when a slot comes up with no
+    format card left (and to whatever remains if the dishes run out).
+    """
+    answered = len(answers)
+    seen = {a.name for a in answers}
+    names = [n for n in names if n in model.index and n not in seen and is_concept(n)]
+    card = lambda n: model.items[model.index[n]]["concept"]["card"]
+    formats = [n for n in names if card(n) == "format"]
+    dishes = [n for n in names if card(n) == "dish"]
+    if answered in FORMAT_SLOTS and formats:
+        return formats[:1]
+    return dishes or formats
 
 
 def answers_from_picks(picks: Iterable[dict]) -> List[Answer]:

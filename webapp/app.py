@@ -49,7 +49,14 @@ from macro_optimizer.nlu import classify_intent, extract_item_match, extract_tag
 from macro_optimizer.adjustments import exclude_and_resolve, resolve_tag_to_item_names
 from macro_optimizer.deviation import MACRO_KEYS, DeviationLog, carry_forward_goals, recompute_day_macros
 from macro_optimizer.tags import build_item_tags
-from macro_optimizer.taste import Answer, TasteModel, answers_from_picks, display_name
+from macro_optimizer.taste import (
+    Answer,
+    TasteModel,
+    answers_from_picks,
+    concept_pool,
+    display_name,
+    load_concepts,
+)
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -154,7 +161,8 @@ def taste_model() -> TasteModel:
     Covers everything a plan can pick (catalog, recipes, delivery
     placeholders) so a swipe's bonus reaches all of it. Built from the
     pantry-free recipe prices; a pantry only changes a recipe's cost, not
-    what it is.
+    what it is. The concept cards (taste_concepts.json) ride along: they are
+    what the survey deals, the catalog is what their answers score.
     """
     global _taste_model
     if _taste_model is None:
@@ -164,16 +172,50 @@ def taste_model() -> TasteModel:
                 if item.name not in seen:
                     seen.add(item.name)
                     items.append(item.to_dict())
-        _taste_model = TasteModel(items)
+        _taste_model = TasteModel(items + load_concepts())
     return _taste_model
 
 
-def swipe_card_pool() -> list:
-    """Names that can be dealt as cards: the Kroger catalog and recipes, not the illustrative delivery rows."""
+def _concept_fits_diet(concept: dict, filters: dict) -> bool:
+    """Hard diet filters keep a card out of the deck; a swipe is never asked to stand in for one."""
+    if concept["card"] != "dish":
+        return True
+    if filters.get("vegan") and not concept.get("vegan"):
+        return False
+    if (filters.get("vegetarian") or filters.get("vegan")) and not concept.get("veg"):
+        return False
+    if (filters.get("no_pork") or filters.get("halal")) and "pork" in concept.get("protein", []):
+        return False
+    return True
+
+
+def swipe_card_pool(filters: Optional[dict] = None) -> list:
+    """Names that can be dealt as cards: the concept cards that fit the user's diet filters.
+
+    Store products are no longer dealt (a swipe on one mixes brand, package
+    and price in with taste), but answers about them from earlier surveys
+    still count; see get_taste_answers.
+    """
+    filters = filters or {}
     return [
         it["name"] for it in taste_model().items
-        if not it["source"].startswith(("Prepared Meal", "Restaurant Order"))
+        if it.get("concept") and _concept_fits_diet(it["concept"], filters)
     ]
+
+
+def _parse_filters(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    def truthy(v) -> bool:  # query strings arrive as "1"/"true"/"0"
+        return v.strip().lower() in ("1", "true", "yes", "on") if isinstance(v, str) else bool(v)
+    return {k: truthy(v) for k, v in raw.items() if k in ("vegetarian", "vegan", "halal", "no_pork")}
+
+
+def deal_card(answers: list, filters: dict, rng=None):
+    """(name, reason) of the next card after ``answers``, honoring format-card slots; None when none are left."""
+    model = taste_model()
+    pool = concept_pool(swipe_card_pool(filters), model, answers)
+    return model.next_card(answers, pool=pool, rng=rng)
 
 
 def get_taste_answers() -> list:
@@ -524,11 +566,56 @@ def _recipe_ingredient_hint(recipe_name: str) -> str:
     return " · ".join(words)
 
 
+_PROTEIN_WORDS = {"plant": "plant-based", "nuts": "nuts", "egg": "eggs", "dairy": "dairy", "fish": "fish & seafood"}
+
+
+def _concept_card_payload(item: dict, reason: str) -> dict:
+    """A concept card: generic dish or way of eating, asked as "Would you eat this?"."""
+    concept = item["concept"]
+    image = concept.get("image") or {}
+    if concept["card"] == "dish":
+        parts = [] if concept["meal"] == "main" else [concept["meal"].capitalize()]
+        if concept["cuisine"] != "none":
+            parts.append(concept["cuisine"].capitalize())
+        if "spicy" in concept["flavor"]:
+            parts.append("spicy")
+        elif "sweet" in concept["flavor"]:
+            parts.append("sweet")
+        proteins = [_PROTEIN_WORDS.get(p, p) for p in concept["protein"] if p != "none"]
+        if proteins:
+            parts.append(" & ".join(proteins[:2]))
+        context = " · ".join(parts) or "Dish"
+    else:
+        context = concept.get("blurb", "")
+    return {
+        "name": item["name"],
+        "title": concept["title"],
+        "prompt": "Would you eat this?" if concept["card"] == "dish" else "Would you eat this way?",
+        "card_type": concept["card"],
+        "context": context,
+        "image_url": image.get("url", ""),
+        "image_credit": f"{image['author']}, {image['license']}" if image.get("url") else "",
+        "image_credit_url": image.get("page", ""),
+        # The placeholder eyebrow shows the cuisine, else this "flavor" line.
+        "placeholder": {
+            "cuisine": concept.get("cuisine", "none"),
+            "flavor": (concept.get("flavor") or ["plain"])[0] if concept["card"] == "dish" else "way of eating",
+            "hint": "",
+            "emoji": concept.get("emoji", ""),
+        },
+        "reason": reason,
+        "category": "Concept",
+        "source": "Concept",
+    }
+
+
 def swipe_card_payload(name: str, reason: str = "") -> dict:
     """One swipe card: photo URL (or placeholder hints), a clean title, and one context line."""
     model = taste_model()
     i = model.index[name]
     item, labels = model.items[i], model.labels[i]
+    if item.get("concept"):
+        return _concept_card_payload(item, reason)
     is_recipe = item["category"] == "Recipe"
     kind = item.get("kind") or ("home-cooked recipe" if is_recipe else item["category"])
     total_minutes = float(item.get("prep_minutes") or 0) + float(item.get("cook_minutes") or 0)
@@ -570,8 +657,16 @@ def api_swipe_cards():
     no two cards point the same way. The onboarding survey itself uses
     /api/swipe-cards/next, which adapts to each answer.
     """
-    names = taste_model().covering_set(SWIPE_CARD_COUNT, pool=swipe_card_pool())
-    return jsonify({"cards": [swipe_card_payload(n, "new ground") for n in names]})
+    # Greedy coverage (each pick counted as an answer so the next lands far
+    # from it, as TasteModel.covering_set does), with format cards in their slots.
+    filters = _parse_filters(request.args.to_dict())
+    chosen: list = []
+    while len(chosen) < SWIPE_CARD_COUNT:
+        nxt = deal_card([Answer(n, True) for n in chosen], filters)
+        if nxt is None:
+            break
+        chosen.append(nxt[0])
+    return jsonify({"cards": [swipe_card_payload(n, "new ground") for n in chosen]})
 
 
 @app.route("/api/swipe-cards/next", methods=["POST"])
@@ -580,11 +675,12 @@ def api_swipe_cards_next():
     """The most informative next card given this survey's answers so far.
 
     Stateless: the client sends every answer each time ({answers: [{name,
-    liked}], seed}), so prefetching the next card for both a like and a
-    dislike is just two calls. Returns {card, done, answered, total};
+    liked}], seed, filters}), so prefetching the next card for both a like
+    and a dislike is just two calls. Returns {card, done, answered, total};
     ``card`` is null once the survey has enough. ``seed`` (an int, fixed
     per survey) makes near-tie choices repeatable, so a prefetched card and
-    a fresh request agree.
+    a fresh request agree. ``filters`` ({vegetarian, vegan, halal,
+    no_pork}) keeps cards the user can't eat out of the deck.
     """
     data = request.get_json(silent=True) or {}
     raw = data.get("answers", [])
@@ -599,7 +695,7 @@ def api_swipe_cards_next():
     if not done:
         seed = data.get("seed")
         rng = np.random.default_rng([seed, len(answers)]) if isinstance(seed, int) and seed >= 0 else np.random.default_rng()
-        nxt = model.next_card(answers, pool=swipe_card_pool(), rng=rng)
+        nxt = deal_card(answers, _parse_filters(data.get("filters")), rng=rng)
         if nxt is None:
             done = True
         else:
