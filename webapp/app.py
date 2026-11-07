@@ -15,6 +15,7 @@ import sqlite3
 from datetime import date, timedelta
 from typing import Optional
 
+import numpy as np
 import requests
 from flask import Flask, g, jsonify, redirect, request, send_from_directory, session
 
@@ -48,6 +49,7 @@ from macro_optimizer.nlu import classify_intent, extract_item_match, extract_tag
 from macro_optimizer.adjustments import exclude_and_resolve, resolve_tag_to_item_names
 from macro_optimizer.deviation import MACRO_KEYS, DeviationLog, carry_forward_goals, recompute_day_macros
 from macro_optimizer.tags import build_item_tags
+from macro_optimizer.taste import Answer, TasteModel, answers_from_picks, display_name
 
 app = Flask(__name__, static_folder="static", static_url_path="")
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
@@ -65,7 +67,13 @@ auth.register_auth(app)
 # penalty on disliked ones). Small relative to typical per-item prices so it
 # steers ties toward taste without overriding the macro/budget optimum.
 SWIPE_BONUS_AMOUNT = 2.0
-SWIPE_CARD_COUNT = 24
+# Cards per survey. Each card is chosen for what it teaches the taste model
+# (see macro_optimizer/taste.py), so 20 covers more ground than 24 random
+# ones did. The survey can end sooner once most of the catalog has a rated
+# item nearby.
+SWIPE_CARD_COUNT = 20
+SWIPE_MIN_CARDS = 12
+SWIPE_STOP_COVERAGE = 0.8
 
 # Looser than rotation_cap=1's exact-name cap on purpose: a whole tag like
 # "vegetable" covers many distinct items, so capping it at 1 would mean the
@@ -137,8 +145,57 @@ def save_deviation_log(log: DeviationLog) -> None:
     db.set_blob(g.user["id"], "deviations", log.entries())
 
 
+_taste_model: Optional[TasteModel] = None
+
+
+def taste_model() -> TasteModel:
+    """The process-wide taste model over every channel's candidates, built on first use.
+
+    Covers everything a plan can pick (catalog, recipes, delivery
+    placeholders) so a swipe's bonus reaches all of it. Built from the
+    pantry-free recipe prices; a pantry only changes a recipe's cost, not
+    what it is.
+    """
+    global _taste_model
+    if _taste_model is None:
+        items, seen = [], set()
+        for channel in (CookAtHomeAdapter(), PreparedMealAdapter(), RestaurantOrderAdapter()):
+            for item in channel.candidates():
+                if item.name not in seen:
+                    seen.add(item.name)
+                    items.append(item.to_dict())
+        _taste_model = TasteModel(items)
+    return _taste_model
+
+
+def swipe_card_pool() -> list:
+    """Names that can be dealt as cards: the Kroger catalog and recipes, not the illustrative delivery rows."""
+    return [
+        it["name"] for it in taste_model().items
+        if not it["source"].startswith(("Prepared Meal", "Restaurant Order"))
+    ]
+
+
+def get_taste_answers() -> list:
+    """Every swipe this user has made, as Answers, oldest first.
+
+    Raw answers are stored (``taste_picks``), not a precomputed bonus, so
+    the bonus is always propagated over the catalog as it is today. A
+    pre-propagation ``taste_profile`` blob ({name: +/-bonus}) is read as
+    answers too, so earlier swipes aren't lost.
+    """
+    legacy = db.get_blob(g.user["id"], "taste_profile", default={}) or {}
+    answers = [Answer(str(name), float(value) > 0) for name, value in legacy.items()]
+    answers += answers_from_picks(db.get_blob(g.user["id"], "taste_picks", default=[]))
+    return answers
+
+
 def get_taste_profile() -> dict:
-    return db.get_blob(g.user["id"], "taste_profile", default={})
+    """{item name: preference bonus} for the whole catalog, propagated from this user's swipes."""
+    answers = get_taste_answers()
+    if not answers:
+        return {}
+    return taste_model().propagate(answers, SWIPE_BONUS_AMOUNT)
 
 
 def build_channels():
@@ -451,40 +508,103 @@ def api_plan_reset():
     return jsonify({"ok": True})
 
 
+_RECIPE_INGREDIENT_NOISE = {"raw", "dry", "fresh", "canned", "bulk", "plain", "90"}
+
+
+def _recipe_ingredient_hint(recipe_name: str) -> str:
+    """A recipe's three biggest ingredients by quantity, e.g. "chicken breast · broccoli · white rice"."""
+    recipe = next((r for r in load_recipes() if r["name"] == recipe_name), None)
+    if recipe is None:
+        return ""
+    biggest = sorted(recipe["ingredients"], key=lambda i: -i["quantity"])[:3]
+    words = [
+        " ".join(w for w in i["ingredient"].split("_") if w not in _RECIPE_INGREDIENT_NOISE)
+        for i in biggest
+    ]
+    return " · ".join(words)
+
+
+def swipe_card_payload(name: str, reason: str = "") -> dict:
+    """One swipe card: photo URL (or placeholder hints), a clean title, and one context line."""
+    model = taste_model()
+    i = model.index[name]
+    item, labels = model.items[i], model.labels[i]
+    is_recipe = item["category"] == "Recipe"
+    kind = item.get("kind") or ("home-cooked recipe" if is_recipe else item["category"])
+    total_minutes = float(item.get("prep_minutes") or 0) + float(item.get("cook_minutes") or 0)
+    context = f"{kind[:1].upper()}{kind[1:]} · ${float(item['price']):.2f}/serving"
+    if total_minutes:
+        context += f" · {total_minutes:.0f} min"
+    image_url = item.get("image_url") or ""
+    return {
+        "name": name,
+        "title": display_name(name),
+        "context": context,
+        "image_url": image_url,
+        # How the placeholder looks when there's no photo (recipes) or the
+        # photo fails to load: tinted by cuisine, captioned by ingredients.
+        "placeholder": {
+            "cuisine": labels["cuisine"],
+            "flavor": labels["flavor"][0],
+            "hint": _recipe_ingredient_hint(name) if is_recipe else kind,
+        },
+        "image_credit": "Kroger" if image_url else "",
+        "reason": reason,
+        "category": item["category"],
+        "source": item["source"],
+        "price": round(float(item["price"]), 2),
+        "calories": round(float(item["calories"]), 1),
+        "protein": round(float(item["protein"]), 1),
+        "carbs": round(float(item["carbs"]), 1),
+        "fat": round(float(item["fat"]), 1),
+    }
+
+
 @app.route("/api/swipe-cards")
 @auth.login_required
 def api_swipe_cards():
-    """A sample of catalog items for the cold-start taste swipe survey.
+    """A fixed, spread-out deck for the cold-start swipe survey.
 
-    Onboarding-time only, before there's any pick history to learn from
-    (see IDEAS.md's "Learning preferences from history"). Plain sampling, not
-    curated, since the point is just a quick read on taste, not a full menu.
+    Non-adaptive fallback for a client that wants the whole deck up front:
+    greedy coverage of the taste feature space (TasteModel.covering_set), so
+    no two cards point the same way. The onboarding survey itself uses
+    /api/swipe-cards/next, which adapts to each answer.
     """
-    food_df = load_food_db()
-    names_seen = set()
-    rows = []
-    for _, row in food_df.sample(frac=1).iterrows():
-        if row["name"] in names_seen:
-            continue
-        names_seen.add(row["name"])
-        rows.append(row)
-        if len(rows) >= SWIPE_CARD_COUNT:
-            break
+    names = taste_model().covering_set(SWIPE_CARD_COUNT, pool=swipe_card_pool())
+    return jsonify({"cards": [swipe_card_payload(n, "new ground") for n in names]})
 
-    cards = [
-        {
-            "name": row["name"],
-            "category": row["category"],
-            "source": row["source"],
-            "price": round(float(row["price"]), 2),
-            "calories": round(float(row["calories"]), 1),
-            "protein": round(float(row["protein"]), 1),
-            "carbs": round(float(row["carbs"]), 1),
-            "fat": round(float(row["fat"]), 1),
-        }
-        for row in rows
-    ]
-    return jsonify({"cards": cards})
+
+@app.route("/api/swipe-cards/next", methods=["POST"])
+@auth.login_required
+def api_swipe_cards_next():
+    """The most informative next card given this survey's answers so far.
+
+    Stateless: the client sends every answer each time ({answers: [{name,
+    liked}], seed}), so prefetching the next card for both a like and a
+    dislike is just two calls. Returns {card, done, answered, total};
+    ``card`` is null once the survey has enough. ``seed`` (an int, fixed
+    per survey) makes near-tie choices repeatable, so a prefetched card and
+    a fresh request agree.
+    """
+    data = request.get_json(silent=True) or {}
+    raw = data.get("answers", [])
+    if not isinstance(raw, list):
+        return jsonify({"error": "answers must be a list of {name, liked}"}), 400
+    answers = answers_from_picks(raw)
+    model = taste_model()
+    done = len(answers) >= SWIPE_CARD_COUNT or (
+        len(answers) >= SWIPE_MIN_CARDS and model.coverage(answers) >= SWIPE_STOP_COVERAGE
+    )
+    card = None
+    if not done:
+        seed = data.get("seed")
+        rng = np.random.default_rng([seed, len(answers)]) if isinstance(seed, int) and seed >= 0 else np.random.default_rng()
+        nxt = model.next_card(answers, pool=swipe_card_pool(), rng=rng)
+        if nxt is None:
+            done = True
+        else:
+            card = swipe_card_payload(*nxt)
+    return jsonify({"card": card, "done": done, "answered": len(answers), "total": SWIPE_CARD_COUNT})
 
 
 @app.route("/api/swipe-survey", methods=["POST"])
@@ -495,19 +615,15 @@ def api_swipe_survey():
     if not isinstance(picks, list):
         return jsonify({"error": "picks must be a list of {name, liked}"}), 400
 
-    # Merge into the persisted profile (last-write-wins per item name) rather
-    # than returning a stateless computed dict, so taste carries across
-    # sessions instead of only applying to the one /api/plan call the client
-    # happens to pass this response into.
-    persisted = get_taste_profile()
-    for pick in picks:
-        if not isinstance(pick, dict) or "name" not in pick or "liked" not in pick:
-            continue
-        name = str(pick["name"])
-        persisted[name] = SWIPE_BONUS_AMOUNT if pick["liked"] else -SWIPE_BONUS_AMOUNT
-    db.set_blob(g.user["id"], "taste_profile", persisted)
+    # Append to the persisted answers rather than returning a stateless
+    # computed dict, so taste carries across sessions instead of only
+    # applying to the one /api/plan call the client passes this into. A
+    # later answer for the same name wins when propagated.
+    stored = db.get_blob(g.user["id"], "taste_picks", default=[]) or []
+    stored += [{"name": a.name, "liked": a.liked} for a in answers_from_picks(picks)]
+    db.set_blob(g.user["id"], "taste_picks", stored)
 
-    return jsonify({"preference_bonus": persisted})
+    return jsonify({"preference_bonus": get_taste_profile()})
 
 
 @app.route("/api/plan", methods=["POST"])

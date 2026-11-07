@@ -19,7 +19,7 @@ FIELDS = [
     "price", "serving_unit",
     "calories", "protein", "carbs", "fat", "fiber", "sodium",
     "allergens", "vegetarian", "vegan", "gluten_free", "halal", "contains_pork",
-    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url", "kind",
+    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url", "kind", "image_url",
 ]
 
 REQUIRED_FIELDS = [
@@ -75,6 +75,12 @@ class FoodItem:
     # per kind (see optimizer.KIND_DAILY_CAP). "" means no grouping, which is
     # right for recipes and one-of-a-kind items.
     kind: str = ""
+    # A product photo URL straight from the source (Kroger's CDN for
+    # catalog rows). Only the URL is stored, never the image bytes: Kroger's
+    # API terms forbid keeping permanent copies of API content, so the
+    # browser loads it from Kroger directly. "" means no photo; the swipe
+    # card then draws a styled placeholder instead.
+    image_url: str = ""
 
     def __post_init__(self):
         if self.price < 0:
