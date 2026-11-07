@@ -163,9 +163,42 @@ def build_catalog_item_tags(channels) -> dict:
 
 PROFILE_INPUT_KEYS = ("sex", "age", "height_ft", "height_in", "weight_lbs", "activity", "goal")
 
+# The user enters and sees a WEEKLY food budget (people plan around paychecks
+# and grocery trips, not per day). The optimizer still works one day at a
+# time, so the weekly figure is split evenly across the planned days at the
+# boundary (see daily_budget_cap). Before this, requests and saved plans held
+# a DAILY ``budget``; anything still carrying only that legacy field is read
+# as budget * PLAN_DAYS so an old $25/day never turns into $25/week.
+PLAN_DAYS = 7
+DEFAULT_WEEKLY_BUDGET = 175.0
+
+
+def daily_budget_cap(weekly_budget: float, days: int = PLAN_DAYS) -> float:
+    """Weekly budget -> the per-day budget_cap run_optimizer/plan_week expect."""
+    return weekly_budget / days
+
+
+def weekly_budget_from(data: dict) -> float:
+    """``weekly_budget`` if present, else the legacy daily ``budget`` * PLAN_DAYS,
+    else the default. Works on both request payloads and saved plan blobs."""
+    if data.get("weekly_budget") is not None:
+        return float(data["weekly_budget"])
+    if data.get("budget") is not None:
+        return float(data["budget"]) * PLAN_DAYS
+    return DEFAULT_WEEKLY_BUDGET
+
+
+def normalize_plan_budget(plan: Optional[dict]) -> Optional[dict]:
+    """Upgrade a saved plan from the legacy daily ``budget`` field to
+    ``weekly_budget`` in place (no-op on plans that already have it)."""
+    if plan is not None and "weekly_budget" not in plan and "budget" in plan:
+        plan["weekly_budget"] = weekly_budget_from(plan)
+        del plan["budget"]
+    return plan
+
 
 def load_plan() -> Optional[dict]:
-    return db.get_blob(g.user["id"], "plan")
+    return normalize_plan_budget(db.get_blob(g.user["id"], "plan"))
 
 
 def save_plan(payload: dict) -> None:
@@ -213,9 +246,11 @@ class PlanInputError(ValueError):
 
 
 def parse_plan_request(data: dict):
-    """Shared parsing for every endpoint that takes a profile + budget/cook_time/filters payload.
+    """Shared parsing for every endpoint that takes a profile + weekly_budget/cook_time/filters payload.
 
-    Returns (profile, macro_goals, budget, cook_time, filters). Raises
+    Returns (profile, goals, macro_goals, weekly_budget, cook_time, filters).
+    ``weekly_budget`` is the user-facing weekly figure; callers convert it
+    with daily_budget_cap() before handing it to the optimizer. Raises
     PlanInputError with a human-readable message on anything invalid.
     """
     try:
@@ -227,9 +262,9 @@ def parse_plan_request(data: dict):
             activity=data["activity"],
             goal=data["goal"],
         )
-        budget = float(data.get("budget", 25.0))
-        if budget <= 0:
-            raise ValueError("budget must be positive")
+        weekly_budget = weekly_budget_from(data)
+        if not weekly_budget > 0:
+            raise ValueError("weekly_budget must be positive")
         cook_time = data.get("cook_time", "medium")
         if cook_time not in COOK_TIME_MINUTES:
             raise ValueError(f"cook_time must be one of {list(COOK_TIME_MINUTES)}")
@@ -242,7 +277,7 @@ def parse_plan_request(data: dict):
 
     goals = compute_goals(profile)
     macro_goals = {k: goals[k] for k in ("calories", "protein", "carbs", "fat")}
-    return profile, goals, macro_goals, budget, cook_time, filters
+    return profile, goals, macro_goals, weekly_budget, cook_time, filters
 
 
 def serialize_day(r: dict) -> dict:
@@ -293,7 +328,7 @@ def serialize_day(r: dict) -> dict:
     }
 
 
-def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: dict, budget: float,
+def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: dict, weekly_budget: float,
                     cook_time: str, filters: dict) -> dict:
     week_payload = [serialize_day(r) for r in results]
 
@@ -325,7 +360,7 @@ def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: di
             "activity_label": ACTIVITY_LABELS[profile.activity],
         },
         "goals": macro_goals,
-        "budget": budget,
+        "weekly_budget": round(weekly_budget, 2),
         "cook_time": cook_time,
         "filters": filters,
         "today": week_payload[0],
@@ -516,7 +551,7 @@ def api_plan():
     data = request.get_json(silent=True) or {}
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, weekly_budget, cook_time, filters = parse_plan_request(data)
         preference_bonus = data.get("preference_bonus")
         if preference_bonus is not None:
             if not isinstance(preference_bonus, dict):
@@ -549,7 +584,7 @@ def api_plan():
         # variety as the database and budget can actually support.
         channels = build_channels()
         results = plan_week_multichannel(
-            days, channels, macro_goals, budget, today=today,
+            days, channels, macro_goals, daily_budget_cap(weekly_budget, len(days)), today=today,
             filters=filters or None, history=history, rotation_cap=1, recency_penalty_weight=5.0,
             tag_rotation_cap=TAG_ROTATION_CAP, item_tags=build_catalog_item_tags(channels),
             preference_bonus=combined_bonus or None, verbose=False,
@@ -558,7 +593,7 @@ def api_plan():
         return jsonify({"error": str(e)}), 400
 
     save_history(history)
-    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_time, filters)
+    payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_time, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
     return jsonify(payload)
@@ -581,7 +616,7 @@ def api_plan_get():
 def api_plan_undo():
     """Restore the plan snapshot saved right before the most recent reshuffle
     or replace-item. Single level, calling it twice in a row undoes the undo."""
-    previous = db.get_blob(g.user["id"], "plan_previous")
+    previous = normalize_plan_budget(db.get_blob(g.user["id"], "plan_previous"))
     if previous is None:
         return jsonify({"error": "nothing to undo"}), 404
     current = db.get_blob(g.user["id"], "plan")
@@ -604,7 +639,7 @@ def api_plan_reshuffle():
     data = request.get_json(silent=True) or {}
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, weekly_budget, cook_time, filters = parse_plan_request(data)
     except PlanInputError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -632,7 +667,7 @@ def api_plan_reshuffle():
     try:
         channels = build_channels()
         results = plan_week_multichannel(
-            days, channels, macro_goals, budget, today=today,
+            days, channels, macro_goals, daily_budget_cap(weekly_budget, len(days)), today=today,
             filters=filters or None, history=history, rotation_cap=1, recency_penalty_weight=5.0,
             tag_rotation_cap=TAG_ROTATION_CAP, item_tags=build_catalog_item_tags(channels),
             preference_bonus=get_taste_profile() or None, verbose=False,
@@ -646,7 +681,7 @@ def api_plan_reshuffle():
         persisted_history.record_plan(r["plan_df"], on=r["day"])
     save_history(persisted_history)
 
-    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_time, filters)
+    payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_time, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
     return jsonify(payload)
@@ -665,7 +700,7 @@ def api_plan_replace_item():
     data = request.get_json(silent=True) or {}
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, weekly_budget, cook_time, filters = parse_plan_request(data)
     except PlanInputError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -701,7 +736,7 @@ def api_plan_replace_item():
     history = get_history()
     try:
         plan_df, summary = run_optimizer(
-            food_df, macro_goals, budget, filters=filters or None,
+            food_df, macro_goals, daily_budget_cap(weekly_budget), filters=filters or None,
             time_budget_minutes=free_minutes, pinned_items=keep_items,
             history=history, recency_penalty_weight=2.0, as_of=day_on,
             preference_bonus=get_taste_profile() or None, verbose=False,
@@ -907,7 +942,7 @@ def _apply_feedback_directive(directive: dict, plan: dict) -> dict:
     day = DayPlan(on=on, free_minutes=free_minutes, pinned_items=keep_items)
     history = get_history()
     plan_df, summary = exclude_and_resolve(
-        food_df, day, matched_names, plan["goals"], plan["budget"],
+        food_df, day, matched_names, plan["goals"], daily_budget_cap(weekly_budget_from(plan)),
         filters=plan["filters"] or None, history=history,
         recency_penalty_weight=2.0, as_of=on,
         preference_bonus=get_taste_profile() or None, verbose=False,
@@ -991,7 +1026,7 @@ def _apply_deviation_directive(directive: dict, plan: dict) -> dict:
         next_day = DayPlan(on=next_on, free_minutes=free_minutes, goals=next_goals)
         history = get_history()
         next_plan_df, next_summary = run_optimizer(
-            next_food_df, next_goals, plan["budget"], filters=plan["filters"] or None,
+            next_food_df, next_goals, daily_budget_cap(weekly_budget_from(plan)), filters=plan["filters"] or None,
             time_budget_minutes=next_day.free_minutes, history=history,
             recency_penalty_weight=2.0, as_of=next_on,
             preference_bonus=get_taste_profile() or None, verbose=False,

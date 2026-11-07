@@ -11,7 +11,7 @@ function renderStatRow() {
     { label: "BMR", value: `${plan.profile.bmr}`, sub: "kcal/day at rest" },
     { label: "Maintenance (TDEE)", value: `${plan.profile.tdee}`, sub: "kcal/day" },
     { label: "Daily calorie target", value: `${plan.goals.calories}`, sub: `${plan.goals.protein}g P · ${plan.goals.carbs}g C · ${plan.goals.fat}g F` },
-    { label: "Daily budget", value: formatMoney(plan.budget), sub: `${formatMoney(plan.week_summary.avg_daily_cost)} avg spent` },
+    { label: "Weekly budget", value: formatMoney(plan.weekly_budget), sub: `${formatMoney(plan.week_summary.total_cost)} planned · ${monthlyHint(plan.weekly_budget)}` },
   ];
   tiles.forEach((t) => {
     const tile = el("div", "stat-tile");

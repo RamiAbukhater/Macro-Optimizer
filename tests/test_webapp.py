@@ -53,7 +53,7 @@ VALID_PAYLOAD = {
     "weight_lbs": 170,
     "activity": "moderate",
     "goal": "lose_fat",
-    "budget": 25,
+    "weekly_budget": 175,
     "cook_time": "medium",
     "filters": {},
 }
@@ -74,7 +74,7 @@ def test_api_plan_valid_payload_returns_full_shape(client):
     resp = client.post("/api/plan", json=VALID_PAYLOAD)
     assert resp.status_code == 200
     body = resp.get_json()
-    for key in ("profile", "goals", "budget", "today", "week", "week_summary", "channel_totals"):
+    for key in ("profile", "goals", "weekly_budget", "today", "week", "week_summary", "channel_totals"):
         assert key in body
     assert len(body["week"]) == 7
     assert body["goals"]["calories"] > 0
@@ -114,13 +114,13 @@ def test_api_plan_invalid_goal_returns_400(client):
 
 
 def test_api_plan_negative_budget_returns_400(client):
-    payload = {**VALID_PAYLOAD, "budget": -5}
+    payload = {**VALID_PAYLOAD, "weekly_budget": -5}
     resp = client.post("/api/plan", json=payload)
     assert resp.status_code == 400
 
 
 def test_api_plan_respects_dietary_filter(client):
-    payload = {**VALID_PAYLOAD, "budget": 40, "filters": {"vegan": True}}
+    payload = {**VALID_PAYLOAD, "weekly_budget": 280, "filters": {"vegan": True}}
     resp = client.post("/api/plan", json=payload)
     assert resp.status_code == 200
     body = resp.get_json()
@@ -145,7 +145,7 @@ def test_api_plan_default_settings_produce_meaningfully_distinct_days(client):
     duplicate of each other, and no pair of days shares more than half of
     either day's items, both of which the old rotation_cap=3 default (three
     real day-for-day repeats before any exclusion kicked in) regularly broke."""
-    payload = {**VALID_PAYLOAD, "budget": 35, "goal": "maintain"}
+    payload = {**VALID_PAYLOAD, "weekly_budget": 245, "goal": "maintain"}
     resp = client.post("/api/plan", json=payload)
     assert resp.status_code == 200
     body = resp.get_json()
@@ -191,7 +191,7 @@ def test_reshuffle_returns_full_week_shape(client):
     resp = client.post("/api/plan/reshuffle", json={**VALID_PAYLOAD, "week_items": []})
     assert resp.status_code == 200
     body = resp.get_json()
-    for key in ("profile", "goals", "budget", "today", "week", "week_summary", "channel_totals"):
+    for key in ("profile", "goals", "weekly_budget", "today", "week", "week_summary", "channel_totals"):
         assert key in body
     assert len(body["week"]) == 7
 
@@ -365,7 +365,7 @@ def test_pantry_is_wired_into_recipe_cost_via_plan_endpoint(client):
     client.post("/api/pantry", json={"ingredient": "white_rice_dry", "quantity": 5000})
     client.post("/api/pantry", json={"ingredient": "broccoli_fresh", "quantity": 5000})
     client.post("/api/pantry", json={"ingredient": "olive_oil", "quantity": 5000})
-    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "budget": 60})
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "weekly_budget": 420})
     assert resp.status_code == 200
 
     recipe = client.get("/api/recipe/Chicken & Rice Bowl").get_json()
@@ -883,3 +883,132 @@ def test_pantry_and_plan_isolated_between_users(client):
 
     other_plan = other.get("/api/plan")
     assert other_plan.status_code == 404
+
+
+# --- weekly budget (user-facing) vs. daily budget_cap (optimizer) ---
+
+def _legacy_payload(daily):
+    payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "weekly_budget"}
+    payload["budget"] = daily
+    return payload
+
+
+def _capture_plan_week_cap(monkeypatch):
+    """Wrap plan_week_multichannel so a test can see the daily cap it got."""
+    import app as app_module
+    seen = {}
+    real = app_module.plan_week_multichannel
+
+    def spy(days, channels, macro_goals, default_budget_cap, *args, **kwargs):
+        seen["cap"] = default_budget_cap
+        seen["days"] = len(days)
+        return real(days, channels, macro_goals, default_budget_cap, *args, **kwargs)
+
+    monkeypatch.setattr(app_module, "plan_week_multichannel", spy)
+    return seen
+
+
+def test_weekly_budget_is_split_into_a_daily_cap_for_the_optimizer(client, monkeypatch):
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan", json={**VALID_PAYLOAD, "weekly_budget": 210}).get_json()
+    assert body["weekly_budget"] == 210
+    assert "budget" not in body
+    assert seen["days"] == 7
+    assert seen["cap"] == pytest.approx(30.0)
+
+
+def test_reshuffle_also_uses_weekly_budget_divided_by_days(client, monkeypatch):
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan/reshuffle", json={**VALID_PAYLOAD, "weekly_budget": 140, "week_items": []}).get_json()
+    assert body["weekly_budget"] == 140
+    assert seen["cap"] == pytest.approx(20.0)
+
+
+def test_legacy_daily_budget_in_request_is_read_as_times_seven(client, monkeypatch):
+    # An old cached frontend (or sessionStorage plan) still sends a DAILY
+    # `budget`; $25 must mean $25/day = $175/week, not $25/week.
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan", json=_legacy_payload(25)).get_json()
+    assert body["weekly_budget"] == 175
+    assert seen["cap"] == pytest.approx(25.0)
+
+
+def test_weekly_budget_wins_over_legacy_budget_when_both_sent(client, monkeypatch):
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan", json={**_legacy_payload(25), "weekly_budget": 70}).get_json()
+    assert body["weekly_budget"] == 70
+    assert seen["cap"] == pytest.approx(10.0)
+
+
+def test_missing_budget_defaults_to_175_a_week(client):
+    payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "weekly_budget"}
+    body = client.post("/api/plan", json=payload).get_json()
+    assert body["weekly_budget"] == 175
+
+
+@pytest.mark.parametrize("bad", [0, -5, "abc"])
+def test_invalid_weekly_budget_returns_400(client, bad):
+    resp = client.post("/api/plan", data=json.dumps({**VALID_PAYLOAD, "weekly_budget": bad}),
+                       content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_replace_item_uses_daily_cap_from_weekly_budget(client, monkeypatch):
+    import app as app_module
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    day = next(d for d in plan["week"] if len(d["items"]) >= 2)
+
+    seen = {}
+    real = app_module.run_optimizer
+
+    def spy(food_df, goals, budget_cap, *args, **kwargs):
+        seen["cap"] = budget_cap
+        return real(food_df, goals, budget_cap, *args, **kwargs)
+
+    monkeypatch.setattr(app_module, "run_optimizer", spy)
+    resp = client.post("/api/plan/replace-item", json={
+        **VALID_PAYLOAD, "weekly_budget": 350,
+        "date": day["date"], "days_out": day["days_out"],
+        "replace_name": day["items"][0]["name"], "current_items": day["items"],
+    })
+    assert resp.status_code == 200, resp.get_json()
+    assert seen["cap"] == pytest.approx(50.0)
+
+
+def _store_legacy_plan(client, key="plan"):
+    """Rewrite the saved plan blob the way it looked before the weekly switch:
+    a DAILY `budget` field and no `weekly_budget`."""
+    import db as db_module
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    plan.pop("weekly_budget")
+    plan["budget"] = 25
+    user_id = db_module.get_user_by_identifier("test@example.com")["id"]
+    db_module.set_blob(user_id, key, plan)
+    return plan
+
+
+def test_get_plan_upgrades_legacy_daily_budget_to_weekly(client):
+    _store_legacy_plan(client)
+    body = client.get("/api/plan").get_json()
+    assert body["weekly_budget"] == 175
+    assert "budget" not in body
+
+
+def test_undo_upgrades_legacy_previous_plan(client):
+    _store_legacy_plan(client, key="plan_previous")
+    body = client.post("/api/plan/undo").get_json()
+    assert body["weekly_budget"] == 175
+    assert "budget" not in body
+
+
+def test_budget_helpers():
+    import app as app_module
+    assert app_module.weekly_budget_from({"weekly_budget": 140}) == 140
+    assert app_module.weekly_budget_from({"budget": 25}) == 175
+    assert app_module.weekly_budget_from({"weekly_budget": 70, "budget": 25}) == 70
+    assert app_module.weekly_budget_from({}) == app_module.DEFAULT_WEEKLY_BUDGET
+    assert app_module.daily_budget_cap(175) == pytest.approx(25.0)
+    assert app_module.daily_budget_cap(150, days=5) == pytest.approx(30.0)
+    legacy = {"budget": 30, "week": []}
+    assert app_module.normalize_plan_budget(legacy) == {"weekly_budget": 210, "week": []}
+    assert app_module.normalize_plan_budget(None) is None

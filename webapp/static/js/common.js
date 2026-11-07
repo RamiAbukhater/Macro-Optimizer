@@ -114,12 +114,31 @@ function toast(message) {
 }
 
 const PLAN_KEY = "macroPlan";
+const PLAN_DAYS = 7;
+const WEEKS_PER_MONTH = 52 / 12;
+
+/** Plans saved before the switch to a weekly budget carry a DAILY `budget`
+ * instead of `weekly_budget`; read those as budget * 7 (never as $X/week)
+ * and rewrite the field so every page only ever sees `weekly_budget`. */
+function normalizePlanBudget(plan) {
+  if (plan && plan.weekly_budget == null && plan.budget != null) {
+    plan.weekly_budget = Number(plan.budget) * PLAN_DAYS;
+    delete plan.budget;
+  }
+  return plan;
+}
+
+/** "≈ $758/month" for a weekly amount. */
+function monthlyHint(weekly) {
+  const monthly = Math.round(Number(weekly) * WEEKS_PER_MONTH);
+  return `≈ $${monthly.toLocaleString("en-US")}/month`;
+}
 
 function loadPlan(redirect = true) {
   const raw = sessionStorage.getItem(PLAN_KEY);
   if (raw) {
     try {
-      return JSON.parse(raw);
+      return normalizePlanBudget(JSON.parse(raw));
     } catch (e) {
       /* fall through to the empty-sessionStorage handling below */
     }
@@ -148,12 +167,12 @@ function savePlan(plan) {
   sessionStorage.setItem(PLAN_KEY, JSON.stringify(plan));
 }
 
-/** Rebuild the {sex, age, ...} + budget/cook_time/filters payload the plan endpoints expect,
+/** Rebuild the {sex, age, ...} + weekly_budget/cook_time/filters payload the plan endpoints expect,
  * from the profile inputs stashed alongside the plan at onboarding time. */
 function planRequestBase(plan) {
   return {
     ...plan.profile_input,
-    budget: plan.budget,
+    weekly_budget: plan.weekly_budget,
     cook_time: plan.cook_time,
     filters: plan.filters || {},
   };
@@ -221,8 +240,8 @@ function recomputeAggregates(plan) {
 }
 
 function renderBudgetMeter(plan) {
-  const weeklyBudget = plan.budget * plan.week.length;
-  const pct = Math.min(100, (plan.week_summary.total_cost / weeklyBudget) * 100);
+  const weeklyBudget = plan.weekly_budget;
+  const pct = weeklyBudget > 0 ? Math.min(100, (plan.week_summary.total_cost / weeklyBudget) * 100) : 0;
   document.getElementById("budget-meter-value").textContent =
     `${formatMoney(plan.week_summary.total_cost)} / ${formatMoney(weeklyBudget)} (${pct.toFixed(0)}%)`;
   document.getElementById("budget-meter-fill").style.width = `${pct}%`;

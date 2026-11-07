@@ -9,6 +9,15 @@ goalCards.forEach((card) => {
   });
 });
 
+const weeklyBudgetInput = document.getElementById("weekly_budget");
+const weeklyBudgetHint = document.getElementById("weekly_budget_hint");
+function updateWeeklyBudgetHint() {
+  const weekly = Number(weeklyBudgetInput.value);
+  weeklyBudgetHint.textContent = weekly > 0 ? monthlyHint(weekly) : "";
+}
+weeklyBudgetInput.addEventListener("input", updateWeeklyBudgetHint);
+updateWeeklyBudgetHint();
+
 const form = document.getElementById("profile-form");
 const errorBanner = document.getElementById("error-banner");
 const submitBtn = document.getElementById("submit-btn");
@@ -41,7 +50,7 @@ form.addEventListener("submit", async (e) => {
 
   const payload = {
     ...profileInput,
-    budget: Number(document.getElementById("budget").value),
+    weekly_budget: Number(document.getElementById("weekly_budget").value),
     cook_time: document.getElementById("cook_time").value,
     filters: {
       vegetarian: document.getElementById("f-vegetarian").checked,

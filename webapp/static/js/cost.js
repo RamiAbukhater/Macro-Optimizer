@@ -3,11 +3,11 @@ let shoppingList = null;
 
 function renderStatRow() {
   const row = document.getElementById("stat-row");
-  const weeklyBudget = plan.budget * plan.week.length;
+  const weeklyBudget = plan.weekly_budget;
   const pct = weeklyBudget > 0 ? (plan.week_summary.total_cost / weeklyBudget) * 100 : 0;
   const tiles = [
-    { label: "Weekly total cost", value: formatMoney(plan.week_summary.total_cost), sub: `vs ${formatMoney(weeklyBudget)} budget` },
-    { label: "Avg daily cost", value: formatMoney(plan.week_summary.avg_daily_cost), sub: `${formatMoney(plan.budget)}/day target` },
+    { label: "Weekly total cost", value: formatMoney(plan.week_summary.total_cost), sub: `vs ${formatMoney(weeklyBudget)}/week budget` },
+    { label: "Avg daily cost", value: formatMoney(plan.week_summary.avg_daily_cost), sub: `${formatMoney(weeklyBudget / PLAN_DAYS)}/day to stay on budget` },
     { label: "Budget utilization", value: `${pct.toFixed(0)}%`, sub: pct <= 100 ? "within budget" : "over budget" },
     { label: "Shopping list total", value: shoppingList ? formatMoney(shoppingList.total_estimated_cost) : "—", sub: "after pantry offset" },
   ];
