@@ -813,6 +813,85 @@ def test_swipe_survey_taste_profile_persists_across_requests(client):
     assert bonus["Banana"] < 0
 
 
+def test_api_swipe_cards_deck_is_spread_across_kinds_and_carries_card_fields(client):
+    cards = client.get("/api/swipe-cards").get_json()["cards"]
+    contexts = [c["context"].split(" · ")[0] for c in cards]
+    assert len(set(contexts)) == len(contexts)  # no two cards of the same kind
+    for card in cards:
+        assert card["title"] and card["context"]
+        assert "image_url" in card and "placeholder" in card
+
+
+def test_api_swipe_cards_next_deals_one_informative_card_at_a_time(client):
+    first = client.post("/api/swipe-cards/next", json={"answers": [], "seed": 3}).get_json()
+    assert first["done"] is False and first["answered"] == 0
+    card = first["card"]
+    assert card["title"] and "$" in card["context"]
+    assert card["image_url"].startswith("https://www.kroger.com/")
+    assert card["image_credit"] == "Kroger"
+
+    second = client.post("/api/swipe-cards/next", json={
+        "answers": [{"name": card["name"], "liked": True}], "seed": 3,
+    }).get_json()
+    assert second["card"]["name"] != card["name"]
+    assert second["answered"] == 1
+    # Never a second card from the region just answered.
+    assert second["card"]["context"].split(" · ")[0] != card["context"].split(" · ")[0]
+
+
+def test_api_swipe_cards_next_is_repeatable_for_one_seed(client):
+    body = {"answers": [], "seed": 11}
+    a = client.post("/api/swipe-cards/next", json=body).get_json()["card"]["name"]
+    b = client.post("/api/swipe-cards/next", json=body).get_json()["card"]["name"]
+    assert a == b
+
+
+def test_api_swipe_cards_next_stops_after_the_deck_size(client):
+    import app as app_module
+
+    names = app_module.swipe_card_pool()[: app_module.SWIPE_CARD_COUNT]
+    body = client.post("/api/swipe-cards/next", json={
+        "answers": [{"name": n, "liked": True} for n in names],
+    }).get_json()
+    assert body["done"] is True and body["card"] is None
+
+
+def test_api_swipe_cards_next_rejects_non_list_answers(client):
+    assert client.post("/api/swipe-cards/next", json={"answers": "nope"}).status_code == 400
+
+
+def test_recipe_cards_fall_back_to_a_styled_placeholder_with_main_ingredients(client):
+    import app as app_module
+
+    with app_module.app.app_context():
+        card = app_module.swipe_card_payload("Chicken & Rice Bowl")
+    assert card["image_url"] == "" and card["image_credit"] == ""
+    assert card["placeholder"]["hint"] == "chicken breast · white rice · broccoli"
+    assert card["context"].startswith("Home-cooked recipe · $")
+
+
+def test_swipe_survey_bonus_reaches_similar_items_never_swiped(client):
+    pizzas = [row["name"] for row in load_market_items() if row.get("kind") == "frozen pizza"]
+    juices = [row["name"] for row in load_market_items() if row.get("kind") == "orange juice"]
+    bonus = client.post("/api/swipe-survey", json={
+        "picks": [{"name": pizzas[0], "liked": True}],
+    }).get_json()["preference_bonus"]
+    assert bonus[pizzas[0]] == 2.0
+    assert sum(bonus.get(n, 0) > 0.5 for n in pizzas[1:]) >= len(pizzas[1:]) // 2
+    assert all(abs(bonus.get(n, 0)) < 0.1 for n in juices)
+
+
+def test_legacy_per_item_taste_profile_still_counts_as_answers(client):
+    import db as db_module
+
+    pizza = next(row["name"] for row in load_market_items() if row.get("kind") == "frozen pizza")
+    user_id = db_module.get_user_by_identifier("testuser")["id"]
+    db_module.set_blob(user_id, "taste_profile", {pizza: -2.0})
+    bonus = client.post("/api/swipe-survey", json={"picks": []}).get_json()["preference_bonus"]
+    assert bonus[pizza] == -2.0
+    assert sum(v < 0 for v in bonus.values()) > 1
+
+
 # --- accounts ---
 
 
