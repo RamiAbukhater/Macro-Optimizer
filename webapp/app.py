@@ -45,6 +45,7 @@ from macro_optimizer import (
     usda_to_food_item,
 )
 from macro_optimizer.database import load_market_items
+from macro_optimizer.display_names import label as item_label
 from macro_optimizer.nlu import classify_intent, extract_item_match, extract_tag, load_food_tags, resolve_day
 from macro_optimizer.adjustments import exclude_and_resolve, resolve_tag_to_item_names
 from macro_optimizer.deviation import MACRO_KEYS, DeviationLog, carry_forward_goals, recompute_day_macros
@@ -474,6 +475,7 @@ def serialize_day(r: dict) -> dict:
             channel = classify_channel(row["source"])
             items.append({
                 "name": row["name"],
+                "display_name": item_label(row),
                 "source": row["source"],
                 "channel": channel,
                 "servings": int(row["servings"]),
@@ -702,7 +704,8 @@ def swipe_card_payload(name: str, reason: str = "") -> dict:
     image_url = item.get("image_url") or ""
     return {
         "name": name,
-        "title": display_name(name),
+        "title": display_name(item_label(item)),
+        "display_name": item_label(item),
         "context": context,
         "image_url": image_url,
         # How the placeholder looks when there's no photo (recipes) or the
@@ -1209,6 +1212,36 @@ class AdjustNeedsClarification(Exception):
         self.options = options
 
 
+def _match_item_name(message: str, rows) -> Optional[str]:
+    """Fuzzy-match free text against food rows, returning the matched row's raw ``name``.
+
+    People type what they were shown ("the hawaiian bagels"), which is the
+    display name, not the raw Kroger title the rest of the app keys on, so
+    both are offered to the matcher and the hit is mapped back to ``name``.
+    Raw names go in first so they win ties: several brands can share one
+    display name, so a message quoting a full title should pick that exact
+    product rather than whichever brand first claimed the shared label.
+    """
+    by_text = {}
+    for row in rows:
+        by_text.setdefault(row["name"], row["name"])
+    for row in rows:
+        by_text.setdefault(item_label(row), row["name"])
+    match = extract_item_match(message, list(by_text))
+    return by_text[match] if match is not None else None
+
+
+def _labels_for(names, *row_sources) -> dict:
+    """{raw name: display name} for ``names``, looked up in plan items / food_df records."""
+    wanted = set(names)
+    labels = {}
+    for rows in row_sources:
+        for row in rows:
+            if row["name"] in wanted and row["name"] not in labels:
+                labels[row["name"]] = item_label(row)
+    return {n: labels.get(n, n) for n in names}
+
+
 def _parse_adjust_directive(message: str, plan: dict) -> dict:
     """Turn a free-text message into a structured directive against ``plan``.
 
@@ -1260,10 +1293,10 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
         # already relies on, first against what's actually on this day's
         # plan, then against the day's full candidate catalog so a dislike
         # can name any food, not just one already plated.
-        day_item_names = [i["name"] for i in day_json["items"]]
-        item_match = extract_item_match(message, day_item_names)
+        food_rows = food_df.to_dict("records")
+        item_match = _match_item_name(message, day_json["items"])
         if item_match is None:
-            item_match = extract_item_match(message, food_df["name"].tolist())
+            item_match = _match_item_name(message, food_rows)
         if item_match is None:
             raise AdjustNeedsClarification(
                 "What food would you like to avoid? You can name a specific "
@@ -1277,21 +1310,29 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
             "match_kind": "item",
             "tag": item_match,
             "matched_names": [item_match],
+            "labels": _labels_for([item_match], day_json["items"], food_rows),
         }
 
     # intent == "deviation"
-    day_item_names = [i["name"] for i in day_json["items"]]
-    planned_item = extract_item_match(message, day_item_names)
+    planned_item = _match_item_name(message, day_json["items"])
     if planned_item is None:
+        # Options are display names: adjust.js resends the message with the
+        # picked option appended, and _match_item_name matches those too.
         raise AdjustNeedsClarification(
-            f"Which item from {_weekday_date_label(on)}'s plan did you skip?", day_item_names,
+            f"Which item from {_weekday_date_label(on)}'s plan did you skip?",
+            [item_label(i) for i in day_json["items"]],
         )
-    # Excludes the planned item's own name from the search space so a
-    # message that mentions both items doesn't have the planned item
-    # winning its own fuzzy match as "what was actually eaten."
+    # Excludes the planned item from the search space so a message that
+    # mentions both items doesn't have the planned item winning its own fuzzy
+    # match as "what was actually eaten." That means its display name too:
+    # other brands of the same food share it ("Plain Bagels"), and would
+    # otherwise match the planned item's words perfectly.
     food_df, _viable = _food_df_for_day(day_json["days_out"])
-    actual_candidates = [n for n in food_df["name"].tolist() if n != planned_item]
-    actual_item = extract_item_match(message, actual_candidates)
+    food_rows = food_df.to_dict("records")
+    planned_label = next((item_label(i) for i in day_json["items"] if i["name"] == planned_item), planned_item)
+    actual_item = _match_item_name(message, [
+        r for r in food_rows if r["name"] != planned_item and item_label(r) != planned_label
+    ])
     if actual_item is None:
         raise AdjustNeedsClarification(
             "I couldn't confidently match what you actually ate against the food "
@@ -1304,19 +1345,25 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
         "days_out": day_json["days_out"],
         "planned_item": planned_item,
         "actual_item": actual_item,
+        "labels": _labels_for([planned_item, actual_item], day_json["items"], food_rows),
     }
 
 
 def _adjust_preview(directive: dict, plan: dict) -> str:
     on = date.fromisoformat(directive["date"])
     label = _weekday_date_label(on)
+    day_json = next(d for d in plan["week"] if d["date"] == directive["date"])
+    shown = {**{i["name"]: item_label(i) for i in day_json["items"]}, **directive.get("labels", {})}
+
+    def show(name: str) -> str:
+        return shown.get(name, name)
 
     if directive["type"] == "feedback":
         matched = directive["matched_names"]
         if not matched:
             return f"Nothing on {label} matches '{directive['tag']}', so this won't change that day's plan."
         if directive.get("match_kind") == "item":
-            return f"On {label}, I'll drop {', '.join(matched)} from the plan and re-solve that day."
+            return f"On {label}, I'll drop {', '.join(show(n) for n in matched)} from the plan and re-solve that day."
 
         # matched_names is every catalog item the tag covers, not just what's
         # plated today, resolve_tag_to_item_names has to return the whole set
@@ -1325,8 +1372,7 @@ def _adjust_preview(directive: dict, plan: dict) -> str:
         # like a dozen items are being pulled off a day that only had two.
         # Say what's actually leaving the plan, then name the exclusion
         # separately.
-        day_json = next(d for d in plan["week"] if d["date"] == directive["date"])
-        currently_plated = [i["name"] for i in day_json["items"] if i["name"] in matched]
+        currently_plated = [item_label(i) for i in day_json["items"] if i["name"] in matched]
         tag = directive["tag"]
         if currently_plated:
             return (
@@ -1341,8 +1387,8 @@ def _adjust_preview(directive: dict, plan: dict) -> str:
     next_on = on + timedelta(days=1)
     has_next_day = any(d["date"] == next_on.isoformat() for d in plan["week"])
     preview = (
-        f"I'll log that you had '{directive['actual_item']}' instead of "
-        f"'{directive['planned_item']}' on {label}, and update that day's totals"
+        f"I'll log that you had '{show(directive['actual_item'])}' instead of "
+        f"'{show(directive['planned_item'])}' on {label}, and update that day's totals"
     )
     preview += f", carrying the difference into {_weekday_date_label(next_on)}'s goals." if has_next_day else "."
     return preview
@@ -1407,6 +1453,7 @@ def _apply_deviation_directive(directive: dict, plan: dict) -> dict:
     new_items = [i for i in day_json["items"] if i["name"] != planned_name]
     new_items.append({
         "name": actual_name,
+        "display_name": item_label(actual_row),
         "source": actual_row["source"],
         "channel": classify_channel(actual_row["source"]),
         "servings": 1,
@@ -1534,6 +1581,7 @@ def _product_payload(item: dict, channel_label: str) -> dict:
     return {
         "type": "product",
         "name": item["name"],
+        "display_name": item_label(item),
         "category": item.get("category", ""),
         "channel": channel_label,
         "location": item.get("location", ""),
