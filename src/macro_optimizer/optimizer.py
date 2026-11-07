@@ -25,6 +25,23 @@ MAX_SERVINGS_DEFAULT = 3
 PENALTY_PER_GRAM = 50  # penalty weight for unmet macro in soft-constraint fallback
 
 
+# Most servings of one ``kind`` of food (see schema.FoodItem.kind) in a single
+# day. Without it a real supermarket catalog defeats the per-item
+# ``max_daily`` limit: the cheapest way to hit a fat floor is two servings
+# each from four brands of peanut butter, which no name-based guard catches.
+KIND_DAILY_CAP = 2
+
+
+def _add_kind_caps(prob, food_df, x, idx, pinned_items):
+    if "kind" not in food_df.columns:
+        return
+    for kind, group in food_df.loc[idx].groupby("kind"):
+        if not kind or len(group) < 2:
+            continue
+        pinned_here = int(group["name"].isin(pinned_items).sum())
+        prob += pulp.lpSum(x[i] for i in group.index) <= max(KIND_DAILY_CAP, pinned_here)
+
+
 def run_optimizer(
     food_df: pd.DataFrame,
     goals: dict,
@@ -141,6 +158,7 @@ def run_optimizer(
             pulp.lpSum(food_df.loc[i, "total_time_minutes"] * x[i] for i in idx) <= time_budget_minutes,
             "time_budget",
         )
+    _add_kind_caps(prob, food_df, x, idx, pinned_items)
 
     solver = pulp.PULP_CBC_CMD(msg=0, timeLimit=30)
     prob.solve(solver)
@@ -265,6 +283,7 @@ def _soft_fallback(food_df, goals, budget_cap, penalties, bonuses, pinned_items,
     prob += pulp.lpSum(food_df.loc[i, "price"] * x[i] for i in idx) <= budget_cap
     if time_budget_minutes is not None:
         prob += pulp.lpSum(food_df.loc[i, "total_time_minutes"] * x[i] for i in idx) <= time_budget_minutes
+    _add_kind_caps(prob, food_df, x, idx, pinned_items)
 
     prob.solve(pulp.PULP_CBC_CMD(msg=0, timeLimit=30))
 

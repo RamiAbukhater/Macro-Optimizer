@@ -6,12 +6,11 @@ user what they're eating, but a shopping list needs raw ingredient
 quantities. Only "Home Cooking" rows (see recipes.py) decompose that way;
 a recipe's ingredient lines scale by servings-chosen / recipe-servings and
 aggregate across every day they appear. Any other row inside the Cook at
-Home channel, "Market", a vendor-specific string like "Goody's Market",
-whatever a given market data file uses, is already the shoppable unit
-itself (a specific packaged item bought as-is), so it's grouped as a
-packaged item rather than decomposed. Dining hall meals and the Prepared
-Meal Delivery / Restaurant Order channels are eaten or delivered directly,
-there's nothing to shop for.
+Home channel, whatever source string the grocery catalog uses, is already
+the shoppable unit itself (a specific packaged item bought as-is), so it's
+grouped as a packaged item rather than decomposed. The Prepared Meal
+Delivery / Restaurant Order channels are delivered directly, there's
+nothing to shop for.
 
 Pantry offset (see pantry.py) is applied per aggregated ingredient, not per
 recipe occurrence, so owning 500g of rice covers it once across the whole
@@ -24,7 +23,6 @@ from .pantry import Pantry
 from .recipes import load_ingredient_db, load_recipes
 
 HOME_COOKING_SOURCE = "Home Cooking"
-DINING_HALL_SOURCE = "Dining Hall"
 # Matches app.py's classify_channel(): any source starting with one of these
 # is a finished, delivered-or-ordered meal, never something to shop for.
 NO_SHOPPING_SOURCE_PREFIXES = ("Prepared Meal Delivery", "Restaurant Order")
@@ -62,7 +60,7 @@ def build_shopping_list(
                 ingredient_totals[line["ingredient"]] = (
                     ingredient_totals.get(line["ingredient"], 0.0) + line["quantity"] * scale
                 )
-        elif source == DINING_HALL_SOURCE or source.startswith(NO_SHOPPING_SOURCE_PREFIXES):
+        elif source.startswith(NO_SHOPPING_SOURCE_PREFIXES):
             no_shopping_needed.append({"name": name, "source": source, "servings": servings})
         else:
             bucket = packaged_totals.setdefault(

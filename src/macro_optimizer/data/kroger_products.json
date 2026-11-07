@@ -1,0 +1,18 @@
+{
+  "chicken_breast_raw": {"term": "boneless skinless chicken breast", "upc": "0001111097860"},
+  "ground_beef_90": {"term": "90% lean ground beef", "upc": "0021251950000"},
+  "egg": {"term": "large eggs", "upc": "0001111090406"},
+  "white_rice_dry": {"term": "long grain white rice", "upc": "0001111089875"},
+  "rolled_oats_dry": {"term": "old fashioned oats", "upc": "0001111076655"},
+  "black_beans_canned": {"term": "canned black beans", "upc": "0001111012114"},
+  "broccoli_fresh": {"term": "broccoli crowns", "upc": "0000000003082"},
+  "olive_oil": {"term": "extra virgin olive oil", "upc": "0001111087856"},
+  "peanut_butter": {"term": "creamy peanut butter", "upc": "0001111012319"},
+  "pasta_dry": {"term": "spaghetti pasta", "upc": "0001111085004"},
+  "marinara_sauce": {"term": "marinara sauce", "upc": "0001111013416"},
+  "cheddar_cheese": {"term": "cheddar cheese block", "upc": "0001111058733"},
+  "greek_yogurt_plain_bulk": {"term": "plain nonfat greek yogurt", "upc": "0001111010760"},
+  "banana": {"term": "bananas", "upc": "0000000004011", "each_grams": 180},
+  "spinach_fresh": {"term": "fresh baby spinach", "upc": "0001111091649"},
+  "onion": {"term": "yellow onions", "upc": "0000000004093"}
+}

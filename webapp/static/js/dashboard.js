@@ -34,29 +34,30 @@ function renderToday() {
   plan.today.items.forEach((item) => {
     const li = el("li");
     const left = el("div");
-    left.appendChild(el("div", "plan-item-name", `<a class="item-link" href="${recipeHref(item)}">${item.name}</a> ${item.servings > 1 ? `×${item.servings}` : ""}`));
+    left.appendChild(el("div", "plan-item-name", `<a class="item-link" href="${recipeHref(item)}">${item.name}</a> ${item.servings > 1 ? `<span class="item-qty">×${item.servings}</span>` : ""}`));
     const badgeClass = CHANNEL_BADGE_CLASS[item.channel] || "badge-channel-home";
-    left.appendChild(el("div", "plan-item-meta", `${itemMetaLine(item)} <span class="badge ${badgeClass}" style="margin-left:6px;">${item.channel}</span>`));
+    left.appendChild(el("div", "plan-item-meta", `<span class="badge ${badgeClass}">${item.channel}</span><span>${itemMetaLine(item)}</span>`));
     li.appendChild(left);
     li.appendChild(el("div", "plan-item-cost", formatMoney(item.total_cost)));
     list.appendChild(li);
   });
 
   const statusBadge = plan.today.feasible
-    ? `<span class="badge badge-good">On target</span>`
-    : `<span class="badge badge-warn">Best effort</span>`;
-  const summary = el("li");
-  summary.style.borderTop = "2px solid var(--gridline)";
+    ? `<span class="stamp stamp-good">On target</span>`
+    : `<span class="stamp stamp-warn">Best effort</span>`;
+  const summary = el("li", "plan-total");
   summary.innerHTML = `<div class="plan-item-name">Total ${statusBadge}</div>`;
   summary.appendChild(el("div", "plan-item-cost", formatMoney(plan.today.achieved.cost)));
   list.appendChild(summary);
 }
 
+// One row of the nutrition-label panel: name, achieved / goal, % of target, and a bar.
 function renderMeter(container, name, achieved, goal, color, track, unit) {
-  const row = el("div", "meter-row");
-  const pct = goal > 0 ? Math.min(100, (achieved / goal) * 100) : 0;
-  const label = el("div", "meter-label");
-  label.innerHTML = `<span class="name">${name}</span><span class="value">${achieved.toFixed(0)}${unit} / ${goal.toFixed(0)}${unit}</span>`;
+  const row = el("div", name === "Calories" ? "nf-row nf-row-major" : "nf-row");
+  const rawPct = goal > 0 ? (achieved / goal) * 100 : 0;
+  const pct = Math.min(100, rawPct);
+  const label = el("div", "nf-line");
+  label.innerHTML = `<span class="nf-name">${name}</span><span class="nf-amount">${achieved.toFixed(0)}${unit} / ${goal.toFixed(0)}${unit}</span><span class="nf-pct">${rawPct.toFixed(0)}%</span>`;
   row.appendChild(label);
   const track_el = el("div", "meter-track");
   track_el.style.background = track;

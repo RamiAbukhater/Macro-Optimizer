@@ -15,13 +15,14 @@ const ICONS = {
   logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  mark: '<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle class="mark-plate" cx="16" cy="16" r="15"/><path class="mark-wedge" d="M16 16V4.5a11.5 11.5 0 0 1 9.96 17.25Z"/><circle class="mark-hole" cx="16" cy="16" r="4"/></svg>',
   empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" stroke-linecap="round"/></svg>',
 };
 
 const NAV_ITEMS = [
   { key: "overview", href: "/dashboard", label: "Overview", icon: "overview" },
-  { key: "menu", href: "/menu", label: "Weekly Menu", icon: "menu" },
-  { key: "cost", href: "/cost", label: "Cost Analysis", icon: "cost" },
+  { key: "menu", href: "/menu", label: "Menu", icon: "menu" },
+  { key: "cost", href: "/cost", label: "Cost", icon: "cost" },
   { key: "fridge", href: "/fridge", label: "Fridge", icon: "fridge" },
 ];
 
@@ -49,6 +50,15 @@ function formatDate(iso) {
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
+/** "2026-10-10" -> { weekday: "Sat", monthDay: "Oct 10" } for the ticket headers. */
+function dateParts(iso) {
+  const d = new Date(iso + "T00:00:00");
+  return {
+    weekday: d.toLocaleDateString(undefined, { weekday: "short" }),
+    monthDay: d.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+  };
+}
+
 function formatMoney(n) {
   return `$${Number(n).toFixed(2)}`;
 }
@@ -57,15 +67,15 @@ function renderShell(activeKey) {
   const mount = document.getElementById("sidebar-mount");
   if (!mount) return;
   const nav = NAV_ITEMS.map(
-    (item) => `<a href="${item.href}" class="${item.key === activeKey ? "active" : ""}">${ICONS[item.icon]}<span>${item.label}</span></a>`
+    (item, i) => `<a href="${item.href}" class="${item.key === activeKey ? "active" : ""}"><span class="nav-num">0${i + 1}</span>${ICONS[item.icon]}<span class="nav-label">${item.label}</span></a>`
   ).join("");
 
   mount.innerHTML = `
-    <div class="sidebar-brand"><span class="mark">${ICONS.overview.replace('stroke-width="1.8"', 'stroke-width="2"')}</span>AutoEat</div>
-    <div class="sidebar-nav">${nav}</div>
+    <a class="sidebar-brand" href="/dashboard">${ICONS.mark}AutoEat</a>
+    <nav class="sidebar-nav">${nav}</nav>
     <div class="sidebar-foot">
-      <a href="#" id="start-over-link">${ICONS.back}<span>Start over</span></a>
-      <a href="#" id="logout-link">${ICONS.logout}<span>Log out</span></a>
+      <a href="#" id="start-over-link" title="Start over">${ICONS.back}<span>Start over</span></a>
+      <a href="#" id="logout-link" title="Log out">${ICONS.logout}<span>Log out</span></a>
     </div>
   `;
 
@@ -226,28 +236,31 @@ function renderChannelBars(plan) {
     container.appendChild(el("div", "empty-state", "No items were selected this week."));
     return;
   }
-  const maxCost = Math.max(...entries.map(([, v]) => v.cost));
+  const totalCost = entries.reduce((sum, [, v]) => sum + v.cost, 0);
+
+  // One stacked bar for the split, then a receipt-style line per channel.
+  const bar = el("div", "mix-bar");
+  entries.forEach(([channel, v]) => {
+    const seg = el("div", "mix-seg");
+    seg.style.flex = `${Math.max(v.cost, 0.01)} 0 0`;
+    seg.style.background = CHANNEL_COLOR[channel] || "var(--series-1)";
+    seg.title = `${channel}: ${formatMoney(v.cost)}`;
+    bar.appendChild(seg);
+  });
+  container.appendChild(bar);
 
   entries.forEach(([channel, v]) => {
-    const row = el("div", "meter-row");
-    const pct = maxCost > 0 ? (v.cost / maxCost) * 100 : 0;
-    const label = el("div", "meter-label");
-    label.innerHTML = `<span class="name">${channel}</span><span class="value">${formatMoney(v.cost)} · ${v.items} item${v.items === 1 ? "" : "s"}</span>`;
-    row.appendChild(label);
-    const track = el("div", "meter-track");
-    const fill = el("div", "meter-fill");
-    fill.style.width = `${pct}%`;
-    fill.style.background = CHANNEL_COLOR[channel] || "var(--series-1)";
-    track.appendChild(fill);
-    row.appendChild(track);
+    const share = totalCost > 0 ? (v.cost / totalCost) * 100 : 0;
+    const row = el("div", "leader-row");
+    row.innerHTML = `
+      <span class="leader-name"><span class="chan-dot" style="background:${CHANNEL_COLOR[channel] || "var(--series-1)"};"></span>${channel}</span>
+      <span class="leader-dots"></span>
+      <span class="leader-value">${v.items} item${v.items === 1 ? "" : "s"} · ${share.toFixed(0)}% · <strong>${formatMoney(v.cost)}</strong></span>`;
     container.appendChild(row);
   });
 
   if (plan.week_summary.infeasible_days.length > 0) {
-    const note = el("p", "", `${plan.week_summary.infeasible_days.length} day(s) this week were best-effort (couldn't fully meet goals within budget/time): ${plan.week_summary.infeasible_days.join(", ")}.`);
-    note.style.marginTop = "12px";
-    note.style.fontSize = "13px";
-    container.appendChild(note);
+    container.appendChild(el("p", "mix-note", `${plan.week_summary.infeasible_days.length} day(s) this week were best-effort (couldn't fully meet goals within budget/time): ${plan.week_summary.infeasible_days.join(", ")}.`));
   }
 }
 

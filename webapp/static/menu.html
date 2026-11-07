@@ -2,9 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
 <title>Weekly Menu · AutoEat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
 </head>
 <body>
 <div class="shell">
@@ -15,14 +23,14 @@
       <div>
         <div class="eyebrow">Weekly Menu</div>
         <h1>This week's meals</h1>
-        <p style="margin:0;">Channel chosen freely per day &mdash; cook at home, prepared meal delivery, or a same-day restaurant order.</p>
+        <p>Each day picks its own channel: cook at home, a prepared meal delivery, or a same-day restaurant order.</p>
       </div>
       <div class="actions">
-        <button class="btn btn-secondary" id="reshuffle-btn"><span id="reshuffle-icon"></span>Reshuffle week</button>
+        <button class="btn btn-primary" id="reshuffle-btn"><span id="reshuffle-icon"></span>Reshuffle week</button>
       </div>
     </div>
 
-    <div class="legend" style="margin-bottom:16px;">
+    <div class="legend" style="margin:0 0 22px;">
       <div class="legend-item"><span class="legend-dot" style="background: var(--series-1);"></span>Cook at Home</div>
       <div class="legend-item"><span class="legend-dot" style="background: var(--series-3);"></span>Prepared Meal Delivery</div>
       <div class="legend-item"><span class="legend-dot" style="background: var(--series-2);"></span>Restaurant Order</div>
@@ -34,6 +42,7 @@
 
 <div class="loading-overlay" id="loading"><span class="spinner"></span>Loading your menu…</div>
 
+<script src="/js/pwa.js"></script>
 <script src="/js/common.js"></script>
 <script src="/js/menu.js"></script>
 </body>

@@ -158,6 +158,15 @@ async function runAdjustment(message) {
   }
 }
 
+// Example chips prefill the box rather than submitting, so the wording can be
+// edited to fit before anything is sent.
+document.querySelectorAll(".adjust-example").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    adjustInput.value = chip.textContent;
+    adjustInput.focus();
+  });
+});
+
 adjustForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const message = adjustInput.value.trim();

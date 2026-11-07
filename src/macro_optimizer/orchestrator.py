@@ -78,7 +78,7 @@ def plan_week_multichannel(
         for channel in viable:
             candidates.extend(channel.candidates())
 
-        food_df = load_food_db(extra_items=candidates, include_market=False, include_dining=False)
+        food_df = load_food_db(extra_items=candidates, include_market=False)
 
         goals = day.goals or default_goals
         budget_cap = day.budget_cap if day.budget_cap is not None else default_budget_cap

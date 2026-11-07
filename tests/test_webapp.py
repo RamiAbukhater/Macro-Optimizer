@@ -7,6 +7,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "webapp"))
 from app import app as flask_app  # noqa: E402
+from macro_optimizer.database import load_market_items  # noqa: E402
 
 
 @pytest.fixture
@@ -255,7 +256,7 @@ def test_recipe_lookup_returns_ingredient_breakdown(client):
 
 
 def test_product_lookup_returns_product_payload(client):
-    resp = client.get("/api/recipe/Premier Protein Shake, Chocolate (11.5 oz)")
+    resp = client.get(f"/api/recipe/{load_market_items()[0]['name']}")
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["type"] == "product"
@@ -385,9 +386,9 @@ def test_recipe_lookup_includes_instructions_and_null_source_url(client):
     assert body["source_url"] is None
 
 
-def test_product_lookup_source_url_defaults_to_none(client):
-    resp = client.get("/api/recipe/Premier Protein Shake, Chocolate (11.5 oz)")
-    assert resp.get_json()["source_url"] is None
+def test_product_lookup_links_to_the_real_product_page(client):
+    resp = client.get(f"/api/recipe/{load_market_items()[0]['name']}")
+    assert resp.get_json()["source_url"].startswith("https://www.kroger.com/p/")
 
 
 # --- plan persistence ---
@@ -790,9 +791,9 @@ def test_api_swipe_survey_rejects_non_list_picks(client):
 
 
 def test_api_plan_accepts_preference_bonus_and_favors_the_bumped_item(client):
-    plain = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
-    plain_names = {item["name"] for item in plain["today"]["items"]}
-    candidate = next(iter(plain_names)) if plain_names else "Apple"
+    # Boost something that has no pick history yet: a plan's own picks are
+    # committed to history, and the rotation guard outranks a soft preference.
+    candidate = next(row["name"] for row in load_market_items() if "Bagel" in row["name"])
 
     boosted_payload = {**VALID_PAYLOAD, "preference_bonus": {candidate: 50.0}}
     boosted = client.post("/api/plan", json=boosted_payload).get_json()

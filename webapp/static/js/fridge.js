@@ -35,14 +35,7 @@ function renderExpiringBanner(pantryData) {
   banner.innerHTML = "";
   if (!pantryData.expiring_soon.length) return;
   const names = pantryData.expiring_soon.map((n) => n.replace(/_/g, " ")).join(", ");
-  const card = el("div", "card");
-  card.style.background = "var(--warning-soft)";
-  card.style.borderColor = "color-mix(in srgb, var(--warning) 45%, transparent)";
-  card.style.display = "flex";
-  card.style.gap = "10px";
-  card.style.alignItems = "center";
-  card.innerHTML = `<strong style="color:var(--warning);">Expiring soon:</strong> <span style="color:var(--text-primary);">${names}</span>`;
-  banner.appendChild(card);
+  banner.appendChild(el("div", "callout", `<strong>Expiring soon</strong><span>${names}</span>`));
 }
 
 function renderTable() {
@@ -52,7 +45,7 @@ function renderTable() {
   if (pantryItems.length === 0) {
     wrap.innerHTML = "";
     wrap.appendChild(el("div", "empty-state", `${ICONS.empty}<div>Nothing tracked yet. Add what's in your fridge above to start saving on recipe cost.</div>`));
-    wrap.style.padding = "0 22px 22px";
+    wrap.style.padding = "0 24px 24px";
     return;
   }
   wrap.style.padding = "0";
@@ -65,7 +58,7 @@ function renderTable() {
     tr.innerHTML = `
       <td style="text-transform:capitalize;">${item.display_name}</td>
       <td class="num">${item.quantity} ${item.unit}</td>
-      <td>${item.expires_on ? `${item.expires_on} <span class="badge ${item.days_until_expiry < 0 ? "badge-warn" : item.days_until_expiry <= 5 ? "badge-warn" : "badge-neutral"}" style="margin-left:6px;">${daysLabel(item.days_until_expiry)}</span>` : '<span style="color:var(--text-muted);">No expiry set</span>'}</td>
+      <td>${item.expires_on ? `<span class="num">${item.expires_on}</span> <span class="badge ${item.days_until_expiry < 0 ? "badge-warn" : item.days_until_expiry <= 5 ? "badge-warn" : "badge-neutral"}" style="margin-left:6px;">${daysLabel(item.days_until_expiry)}</span>` : '<span style="color:var(--text-muted);">No expiry set</span>'}</td>
       <td></td>`;
     const actionsCell = tr.lastElementChild;
     const editBtn = el("button", "btn btn-ghost btn-sm", "Edit");
