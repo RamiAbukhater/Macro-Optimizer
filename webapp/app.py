@@ -84,6 +84,57 @@ COOK_TIME_MINUTES = {
     "high": 90,
 }
 
+# Per-weekday cooking minutes, Monday..Sunday (date.weekday() order). 0 means
+# "no cooking that day", only zero-prep items fit. Upper bound keeps a typo
+# like 900 from silently removing the time constraint.
+COOK_SCHEDULE_MAX_MINUTES = 240
+
+
+def cook_schedule_from(data: dict) -> list:
+    """The 7-value cook schedule a request or saved plan carries.
+
+    Prefers an explicit ``cook_schedule`` (7 numbers, Mon..Sun); falls back to
+    the legacy single ``cook_time`` label ("low"/"medium"/"high") spread over
+    all 7 days, so plans saved before per-day schedules still load. Raises
+    ValueError on anything malformed.
+    """
+    schedule = data.get("cook_schedule")
+    if schedule is not None:
+        if not isinstance(schedule, list) or len(schedule) != 7:
+            raise ValueError("cook_schedule must be a list of 7 minute values, Monday to Sunday")
+        out = []
+        for v in schedule:
+            if isinstance(v, bool):
+                raise ValueError("cook_schedule values must be numbers")
+            m = int(round(float(v)))
+            if not 0 <= m <= COOK_SCHEDULE_MAX_MINUTES:
+                raise ValueError(f"cook_schedule values must be between 0 and {COOK_SCHEDULE_MAX_MINUTES}")
+            out.append(m)
+        return out
+    cook_time = data.get("cook_time", "medium")
+    if cook_time not in COOK_TIME_MINUTES:
+        raise ValueError(f"cook_time must be one of {list(COOK_TIME_MINUTES)}")
+    return [COOK_TIME_MINUTES[cook_time]] * 7
+
+
+def cook_time_label(schedule: list) -> str:
+    """Legacy ``cook_time`` echo: the preset name when every day matches one, else "custom"."""
+    for label, minutes in COOK_TIME_MINUTES.items():
+        if all(m == minutes for m in schedule):
+            return label
+    return "custom"
+
+
+def minutes_on(schedule: list, on: date) -> int:
+    return schedule[on.weekday()]
+
+
+def week_day_plans(schedule: list, start: date) -> list:
+    return [
+        DayPlan(on=d, free_minutes=minutes_on(schedule, d))
+        for d in (start + timedelta(days=i) for i in range(7))
+    ]
+
 GOAL_LABELS = {
     "lose_fat": "Lose Fat",
     "maintain": "Maintain",
@@ -215,7 +266,8 @@ class PlanInputError(ValueError):
 def parse_plan_request(data: dict):
     """Shared parsing for every endpoint that takes a profile + budget/cook_time/filters payload.
 
-    Returns (profile, macro_goals, budget, cook_time, filters). Raises
+    Returns (profile, goals, macro_goals, budget, cook_schedule, filters), where
+    cook_schedule is 7 minute values, Monday..Sunday (see cook_schedule_from). Raises
     PlanInputError with a human-readable message on anything invalid.
     """
     try:
@@ -230,9 +282,7 @@ def parse_plan_request(data: dict):
         budget = float(data.get("budget", 25.0))
         if budget <= 0:
             raise ValueError("budget must be positive")
-        cook_time = data.get("cook_time", "medium")
-        if cook_time not in COOK_TIME_MINUTES:
-            raise ValueError(f"cook_time must be one of {list(COOK_TIME_MINUTES)}")
+        cook_schedule = cook_schedule_from(data)
         filters = {
             k: bool(v) for k, v in (data.get("filters") or {}).items()
             if k in ("vegetarian", "vegan", "halal", "gluten_free", "no_pork")
@@ -242,7 +292,7 @@ def parse_plan_request(data: dict):
 
     goals = compute_goals(profile)
     macro_goals = {k: goals[k] for k in ("calories", "protein", "carbs", "fat")}
-    return profile, goals, macro_goals, budget, cook_time, filters
+    return profile, goals, macro_goals, budget, cook_schedule, filters
 
 
 def serialize_day(r: dict) -> dict:
@@ -294,7 +344,7 @@ def serialize_day(r: dict) -> dict:
 
 
 def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: dict, budget: float,
-                    cook_time: str, filters: dict) -> dict:
+                    cook_schedule: list, filters: dict) -> dict:
     week_payload = [serialize_day(r) for r in results]
 
     # Accumulated from the raw (unrounded) plan_df rows, not the already-rounded
@@ -326,7 +376,8 @@ def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: di
         },
         "goals": macro_goals,
         "budget": budget,
-        "cook_time": cook_time,
+        "cook_time": cook_time_label(cook_schedule),
+        "cook_schedule": cook_schedule,
         "filters": filters,
         "today": week_payload[0],
         "week": week_payload,
@@ -516,7 +567,7 @@ def api_plan():
     data = request.get_json(silent=True) or {}
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, budget, cook_schedule, filters = parse_plan_request(data)
         preference_bonus = data.get("preference_bonus")
         if preference_bonus is not None:
             if not isinstance(preference_bonus, dict):
@@ -531,8 +582,7 @@ def api_plan():
     combined_bonus = {**get_taste_profile(), **(preference_bonus or {})}
 
     today = date.today()
-    free_minutes = COOK_TIME_MINUTES[cook_time]
-    days = [DayPlan(on=today + timedelta(days=i), free_minutes=free_minutes) for i in range(7)]
+    days = week_day_plans(cook_schedule, today)
     # A real, persisted PickHistory, fed every time a plan is generated, not
     # just at reshuffle time (see backend_support.md's "Plan/session
     # persistence" note), so the anti-repetition guard has real cross-request
@@ -558,7 +608,7 @@ def api_plan():
         return jsonify({"error": str(e)}), 400
 
     save_history(history)
-    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_time, filters)
+    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
     return jsonify(payload)
@@ -604,15 +654,14 @@ def api_plan_reshuffle():
     data = request.get_json(silent=True) or {}
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, budget, cook_schedule, filters = parse_plan_request(data)
     except PlanInputError as e:
         return jsonify({"error": str(e)}), 400
 
     week_items = data.get("week_items") or []
 
     today = date.today()
-    free_minutes = COOK_TIME_MINUTES[cook_time]
-    days = [DayPlan(on=today + timedelta(days=i), free_minutes=free_minutes) for i in range(7)]
+    days = week_day_plans(cook_schedule, today)
 
     # Steer hard away from what's currently on screen, layered on top of the
     # real persisted history so a reshuffle also avoids genuinely-recent picks,
@@ -646,7 +695,7 @@ def api_plan_reshuffle():
         persisted_history.record_plan(r["plan_df"], on=r["day"])
     save_history(persisted_history)
 
-    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_time, filters)
+    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
     return jsonify(payload)
@@ -665,7 +714,7 @@ def api_plan_replace_item():
     data = request.get_json(silent=True) or {}
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, budget, cook_schedule, filters = parse_plan_request(data)
     except PlanInputError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -697,7 +746,7 @@ def api_plan_replace_item():
     if missing_keep:
         return jsonify({"error": f"can't keep item(s) not available today: {missing_keep}"}), 400
 
-    free_minutes = COOK_TIME_MINUTES[cook_time]
+    free_minutes = minutes_on(cook_schedule, day_on)
     history = get_history()
     try:
         plan_df, summary = run_optimizer(
@@ -903,7 +952,7 @@ def _apply_feedback_directive(directive: dict, plan: dict) -> dict:
     food_df, viable = _food_df_for_day(days_out)
     keep_items = [i["name"] for i in day_json["items"] if i["name"] not in matched_names]
 
-    free_minutes = COOK_TIME_MINUTES[plan["cook_time"]]
+    free_minutes = minutes_on(cook_schedule_from(plan), on)
     day = DayPlan(on=on, free_minutes=free_minutes, pinned_items=keep_items)
     history = get_history()
     plan_df, summary = exclude_and_resolve(
@@ -986,7 +1035,7 @@ def _apply_deviation_directive(directive: dict, plan: dict) -> dict:
     next_day_json = next((d for d in plan["week"] if d["date"] == next_on.isoformat()), None)
     if next_day_json is not None:
         next_goals = carry_forward_goals(goals, delta)
-        free_minutes = COOK_TIME_MINUTES[plan["cook_time"]]
+        free_minutes = minutes_on(cook_schedule_from(plan), next_on)
         next_food_df, next_viable = _food_df_for_day(next_day_json["days_out"])
         next_day = DayPlan(on=next_on, free_minutes=free_minutes, goals=next_goals)
         history = get_history()

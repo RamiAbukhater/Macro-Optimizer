@@ -882,3 +882,179 @@ def test_pantry_and_plan_isolated_between_users(client):
 
     other_plan = other.get("/api/plan")
     assert other_plan.status_code == 404
+
+
+# --- per-day cooking schedule ---
+
+from datetime import timedelta  # noqa: E402
+
+import app as app_module  # noqa: E402
+
+SCHEDULE = [20, 20, 20, 20, 20, 90, 0]  # Mon..Sun: short weekdays, long Saturday, no-cook Sunday
+
+
+def test_cook_schedule_from_prefers_explicit_schedule():
+    assert app_module.cook_schedule_from({"cook_schedule": SCHEDULE, "cook_time": "high"}) == SCHEDULE
+
+
+@pytest.mark.parametrize("label,minutes", [("low", 20), ("medium", 45), ("high", 90)])
+def test_cook_schedule_from_expands_legacy_cook_time(label, minutes):
+    assert app_module.cook_schedule_from({"cook_time": label}) == [minutes] * 7
+
+
+def test_cook_schedule_from_defaults_to_medium():
+    assert app_module.cook_schedule_from({}) == [45] * 7
+
+
+@pytest.mark.parametrize("bad", [
+    [30] * 6, [30] * 8, "30", [30] * 6 + [-5], [30] * 6 + [999], [30] * 6 + ["x"], [True] * 7,
+])
+def test_cook_schedule_from_rejects_malformed(bad):
+    with pytest.raises(ValueError):
+        app_module.cook_schedule_from({"cook_schedule": bad})
+
+
+def test_cook_time_label_names_uniform_presets_else_custom():
+    assert app_module.cook_time_label([90] * 7) == "high"
+    assert app_module.cook_time_label(SCHEDULE) == "custom"
+
+
+def _spy(monkeypatch, name):
+    """Wrap app_module.<name> so calls still run for real; record (args, kwargs, result)."""
+    real = getattr(app_module, name)
+    calls = []
+
+    def wrapper(*args, **kwargs):
+        result = real(*args, **kwargs)
+        calls.append((args, kwargs, result))
+        return result
+
+    monkeypatch.setattr(app_module, name, wrapper)
+    return calls
+
+
+def test_api_plan_maps_schedule_onto_each_dates_weekday(client, monkeypatch):
+    calls = _spy(monkeypatch, "plan_week_multichannel")
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE})
+    assert resp.status_code == 200, resp.get_json()
+    days = calls[0][0][0]
+    assert len(days) == 7
+    for d in days:
+        assert d.free_minutes == SCHEDULE[d.on.weekday()]
+
+    body = resp.get_json()
+    assert body["cook_schedule"] == SCHEDULE
+    assert body["cook_time"] == "custom"
+    assert client.get("/api/plan").get_json()["cook_schedule"] == SCHEDULE
+
+
+def test_api_plan_legacy_cook_time_still_works_and_echoes_schedule(client):
+    body = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    assert body["cook_time"] == "medium"
+    assert body["cook_schedule"] == [45] * 7
+
+
+def test_api_plan_rejects_bad_schedule(client):
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": [30, 30]})
+    assert resp.status_code == 400
+    assert "cook_schedule" in resp.get_json()["error"]
+
+
+def test_each_day_respects_its_own_minutes_and_long_day_differs(client, monkeypatch):
+    calls = _spy(monkeypatch, "plan_week_multichannel")
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "budget": 35, "cook_schedule": SCHEDULE})
+    assert resp.status_code == 200
+    results = calls[0][2]
+
+    used_by_weekday = {}
+    for r in results:
+        allowed = SCHEDULE[r["day"].weekday()]
+        df = r["plan_df"]
+        used = float((df["total_time_minutes"] * df["servings"]).sum()) if not df.empty else 0.0
+        assert used <= allowed + 1e-6, (r["day"], allowed, used)
+        used_by_weekday[r["day"].weekday()] = used
+    # The 90-minute Saturday actually uses more than a 20-minute weekday allows.
+    assert used_by_weekday[5] > 20
+
+
+def test_reshuffle_uses_schedule(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    calls = _spy(monkeypatch, "plan_week_multichannel")
+    resp = client.post("/api/plan/reshuffle", json={
+        **VALID_PAYLOAD, "cook_time": plan["cook_time"], "cook_schedule": plan["cook_schedule"], "week_items": [],
+    })
+    assert resp.status_code == 200
+    for d in calls[0][0][0]:
+        assert d.free_minutes == SCHEDULE[d.on.weekday()]
+    assert resp.get_json()["cook_schedule"] == SCHEDULE
+
+
+def test_replace_item_uses_that_dates_minutes(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    day = next(d for d in plan["week"] if d["items"])
+    calls = _spy(monkeypatch, "run_optimizer")
+    client.post("/api/plan/replace-item", json={
+        **VALID_PAYLOAD, "cook_schedule": SCHEDULE,
+        "date": day["date"], "days_out": day["days_out"],
+        "replace_name": day["items"][0]["name"], "current_items": day["items"],
+    })
+    assert calls, "run_optimizer was never reached"
+    assert calls[0][1]["time_budget_minutes"] == SCHEDULE[date.fromisoformat(day["date"]).weekday()]
+
+
+def _feedback_message(plan):
+    day, _tag, synonym, _item = _find_feedback_target(plan)
+    assert day is not None
+    weekday = date.fromisoformat(day["date"]).strftime("%A").lower()
+    return day, f"I'm sick of {synonym} on {weekday}"
+
+
+def test_adjust_feedback_regenerates_day_with_schedule_minutes(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    day, message = _feedback_message(plan)
+    calls = _spy(monkeypatch, "exclude_and_resolve")
+    client.post("/api/plan/adjust", json={"message": message})
+    resp = client.post("/api/plan/adjust", json={"message": message, "confirmed": True})
+    assert resp.status_code == 200
+    assert calls[0][0][1].free_minutes == SCHEDULE[date.fromisoformat(day["date"]).weekday()]
+
+
+def test_adjust_feedback_on_legacy_saved_plan_uses_cook_time(client, monkeypatch):
+    import db as db_module
+
+    client.post("/api/plan", json=VALID_PAYLOAD)
+    uid = _test_user_id()
+    plan = db_module.get_blob(uid, "plan")
+    plan.pop("cook_schedule", None)  # what a plan saved before per-day schedules looks like
+    plan["cook_time"] = "high"
+    db_module.set_blob(uid, "plan", plan)
+
+    _day, message = _feedback_message(plan)
+    calls = _spy(monkeypatch, "exclude_and_resolve")
+    client.post("/api/plan/adjust", json={"message": message})
+    resp = client.post("/api/plan/adjust", json={"message": message, "confirmed": True})
+    assert resp.status_code == 200
+    assert calls[0][0][1].free_minutes == 90
+
+
+def test_adjust_deviation_next_day_uses_next_dates_minutes(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    today = plan["today"]
+    assert len(today["items"]) >= 2
+    message = f"I skipped the {today['items'][0]['name']} today and instead had the {today['items'][1]['name']}"
+
+    calls = _spy(monkeypatch, "run_optimizer")
+    client.post("/api/plan/adjust", json={"message": message})
+    resp = client.post("/api/plan/adjust", json={"message": message, "confirmed": True})
+    assert resp.status_code == 200
+    next_on = date.fromisoformat(today["date"]) + timedelta(days=1)
+    assert calls[-1][1]["time_budget_minutes"] == SCHEDULE[next_on.weekday()]
+
+
+def test_onboarding_and_dashboard_ship_schedule_ui(client):
+    onboarding = client.get("/").data
+    assert b'id="cook_weekend_different"' in onboarding
+    assert b'id="cook_time_weekend"' in onboarding
+    dashboard = client.get("/dashboard").data
+    assert b'id="cook-schedule-editor"' in dashboard
+    assert b"/js/cook-schedule.js" in dashboard

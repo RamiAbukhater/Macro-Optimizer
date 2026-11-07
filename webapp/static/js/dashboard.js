@@ -86,6 +86,7 @@ if (plan) {
   renderMacroMeters();
   renderBudgetMeter(plan);
   renderChannelBars(plan);
+  mountCookScheduleCard(plan);
 
   document.getElementById("loading").style.display = "none";
   document.getElementById("dashboard-root").style.display = "block";
