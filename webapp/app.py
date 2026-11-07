@@ -45,6 +45,7 @@ from macro_optimizer import (
     usda_to_food_item,
 )
 from macro_optimizer.database import load_market_items
+from macro_optimizer.display_names import label as item_label
 from macro_optimizer.nlu import classify_intent, extract_item_match, extract_tag, load_food_tags, resolve_day
 from macro_optimizer.adjustments import exclude_and_resolve, resolve_tag_to_item_names
 from macro_optimizer.deviation import MACRO_KEYS, DeviationLog, carry_forward_goals, recompute_day_macros
@@ -98,6 +99,57 @@ COOK_TIME_MINUTES = {
     "medium": 45,
     "high": 90,
 }
+
+# Per-weekday cooking minutes, Monday..Sunday (date.weekday() order). 0 means
+# "no cooking that day", only zero-prep items fit. Upper bound keeps a typo
+# like 900 from silently removing the time constraint.
+COOK_SCHEDULE_MAX_MINUTES = 240
+
+
+def cook_schedule_from(data: dict) -> list:
+    """The 7-value cook schedule a request or saved plan carries.
+
+    Prefers an explicit ``cook_schedule`` (7 numbers, Mon..Sun); falls back to
+    the legacy single ``cook_time`` label ("low"/"medium"/"high") spread over
+    all 7 days, so plans saved before per-day schedules still load. Raises
+    ValueError on anything malformed.
+    """
+    schedule = data.get("cook_schedule")
+    if schedule is not None:
+        if not isinstance(schedule, list) or len(schedule) != 7:
+            raise ValueError("cook_schedule must be a list of 7 minute values, Monday to Sunday")
+        out = []
+        for v in schedule:
+            if isinstance(v, bool):
+                raise ValueError("cook_schedule values must be numbers")
+            m = int(round(float(v)))
+            if not 0 <= m <= COOK_SCHEDULE_MAX_MINUTES:
+                raise ValueError(f"cook_schedule values must be between 0 and {COOK_SCHEDULE_MAX_MINUTES}")
+            out.append(m)
+        return out
+    cook_time = data.get("cook_time", "medium")
+    if cook_time not in COOK_TIME_MINUTES:
+        raise ValueError(f"cook_time must be one of {list(COOK_TIME_MINUTES)}")
+    return [COOK_TIME_MINUTES[cook_time]] * 7
+
+
+def cook_time_label(schedule: list) -> str:
+    """Legacy ``cook_time`` echo: the preset name when every day matches one, else "custom"."""
+    for label, minutes in COOK_TIME_MINUTES.items():
+        if all(m == minutes for m in schedule):
+            return label
+    return "custom"
+
+
+def minutes_on(schedule: list, on: date) -> int:
+    return schedule[on.weekday()]
+
+
+def week_day_plans(schedule: list, start: date) -> list:
+    return [
+        DayPlan(on=d, free_minutes=minutes_on(schedule, d))
+        for d in (start + timedelta(days=i) for i in range(7))
+    ]
 
 GOAL_LABELS = {
     "lose_fat": "Lose Fat",
@@ -262,9 +314,42 @@ def build_catalog_item_tags(channels) -> dict:
 
 PROFILE_INPUT_KEYS = ("sex", "age", "height_ft", "height_in", "weight_lbs", "activity", "goal")
 
+# The user enters and sees a WEEKLY food budget (people plan around paychecks
+# and grocery trips, not per day). The optimizer still works one day at a
+# time, so the weekly figure is split evenly across the planned days at the
+# boundary (see daily_budget_cap). Before this, requests and saved plans held
+# a DAILY ``budget``; anything still carrying only that legacy field is read
+# as budget * PLAN_DAYS so an old $25/day never turns into $25/week.
+PLAN_DAYS = 7
+DEFAULT_WEEKLY_BUDGET = 175.0
+
+
+def daily_budget_cap(weekly_budget: float, days: int = PLAN_DAYS) -> float:
+    """Weekly budget -> the per-day budget_cap run_optimizer/plan_week expect."""
+    return weekly_budget / days
+
+
+def weekly_budget_from(data: dict) -> float:
+    """``weekly_budget`` if present, else the legacy daily ``budget`` * PLAN_DAYS,
+    else the default. Works on both request payloads and saved plan blobs."""
+    if data.get("weekly_budget") is not None:
+        return float(data["weekly_budget"])
+    if data.get("budget") is not None:
+        return float(data["budget"]) * PLAN_DAYS
+    return DEFAULT_WEEKLY_BUDGET
+
+
+def normalize_plan_budget(plan: Optional[dict]) -> Optional[dict]:
+    """Upgrade a saved plan from the legacy daily ``budget`` field to
+    ``weekly_budget`` in place (no-op on plans that already have it)."""
+    if plan is not None and "weekly_budget" not in plan and "budget" in plan:
+        plan["weekly_budget"] = weekly_budget_from(plan)
+        del plan["budget"]
+    return plan
+
 
 def load_plan() -> Optional[dict]:
-    return db.get_blob(g.user["id"], "plan")
+    return normalize_plan_budget(db.get_blob(g.user["id"], "plan"))
 
 
 def save_plan(payload: dict) -> None:
@@ -273,6 +358,83 @@ def save_plan(payload: dict) -> None:
     if existing is not None:
         db.set_blob(g.user["id"], "plan_previous", existing)
     db.set_blob(g.user["id"], "plan", payload)
+
+
+# --- Profile settings: the user's planning inputs, independent of any plan ---
+#
+# Everything onboarding asks for (body stats, goal, weekly budget, cook
+# schedule, diet filters) lives in its own per-user blob, so it survives
+# "Start over", exists before a plan does, and can be edited from /settings.
+# Before this, those inputs only lived inside the saved plan as
+# ``plan.profile_input`` (+ the plan's weekly_budget/cook_schedule/filters);
+# load_profile_settings() migrates that shape on first read.
+#
+# Invariant: whenever a plan exists, these settings are the inputs it was
+# built from. Every full-week build (/api/plan, reshuffle) re-saves them,
+# PUT /api/settings rebuilds the week, and undo restores the matching set.
+PROFILE_SETTINGS_KIND = "profile_settings"
+SETTINGS_KEYS = PROFILE_INPUT_KEYS + ("weekly_budget", "cook_schedule", "filters")
+FILTER_KEYS = ("vegetarian", "vegan", "halal", "gluten_free", "no_pork")
+
+
+def settings_from_plan(plan: Optional[dict]) -> Optional[dict]:
+    """The settings a saved plan was built from, or None when it predates
+    profile_input (nothing to migrate)."""
+    if not plan:
+        return None
+    profile_input = plan.get("profile_input") or {}
+    if any(profile_input.get(k) is None for k in PROFILE_INPUT_KEYS):
+        return None
+    try:
+        schedule = cook_schedule_from(plan)
+    except ValueError:
+        schedule = [COOK_TIME_MINUTES["medium"]] * 7
+    return {
+        **{k: profile_input[k] for k in PROFILE_INPUT_KEYS},
+        "weekly_budget": weekly_budget_from(plan),
+        "cook_schedule": schedule,
+        "filters": {k: bool(v) for k, v in (plan.get("filters") or {}).items() if k in FILTER_KEYS},
+    }
+
+
+def load_profile_settings() -> Optional[dict]:
+    """The stored settings blob, migrating from the saved plan on first read."""
+    settings = db.get_blob(g.user["id"], PROFILE_SETTINGS_KIND)
+    if settings:
+        return settings
+    migrated = settings_from_plan(load_plan())
+    if migrated is not None:
+        db.set_blob(g.user["id"], PROFILE_SETTINGS_KIND, migrated)
+    return migrated
+
+
+def save_profile_settings(data: dict, weekly_budget: float, cook_schedule: list, filters: dict) -> dict:
+    """Persist the (already validated) inputs of a plan request as settings."""
+    settings = {
+        **{k: data.get(k) for k in PROFILE_INPUT_KEYS},
+        "weekly_budget": round(float(weekly_budget), 2),
+        "cook_schedule": list(cook_schedule),
+        "filters": {k: bool(filters.get(k)) for k in FILTER_KEYS},
+    }
+    db.set_blob(g.user["id"], PROFILE_SETTINGS_KIND, settings)
+    return settings
+
+
+def with_saved_settings(data: dict) -> dict:
+    """A plan request with any missing inputs filled from the stored settings.
+
+    Request values win; null/absent ones fall back to settings (which in
+    turn fall back to the saved plan's profile_input, see
+    load_profile_settings). Legacy request fields still win over the
+    settings they replaced: a daily ``budget`` beats the stored
+    weekly_budget, a lone ``cook_time`` beats the stored cook_schedule.
+    """
+    base = dict(load_profile_settings() or {})
+    if data.get("weekly_budget") is not None or data.get("budget") is not None:
+        base.pop("weekly_budget", None)
+    if data.get("cook_time") is not None and data.get("cook_schedule") is None:
+        base.pop("cook_schedule", None)
+    return {**base, **{k: v for k, v in data.items() if v is not None}}
 
 
 def recompute_week_aggregates(plan: dict) -> None:
@@ -312,9 +474,13 @@ class PlanInputError(ValueError):
 
 
 def parse_plan_request(data: dict):
-    """Shared parsing for every endpoint that takes a profile + budget/cook_time/filters payload.
+    """Shared parsing for every endpoint that takes a profile + weekly_budget/cook_time/filters payload.
 
-    Returns (profile, macro_goals, budget, cook_time, filters). Raises
+    Returns (profile, goals, macro_goals, weekly_budget, cook_schedule, filters).
+    ``weekly_budget`` is the user-facing weekly figure; callers convert it
+    with daily_budget_cap() before handing it to the optimizer.
+    ``cook_schedule`` is 7 minute values, Monday..Sunday (see
+    cook_schedule_from). Raises
     PlanInputError with a human-readable message on anything invalid.
     """
     try:
@@ -326,22 +492,20 @@ def parse_plan_request(data: dict):
             activity=data["activity"],
             goal=data["goal"],
         )
-        budget = float(data.get("budget", 25.0))
-        if budget <= 0:
-            raise ValueError("budget must be positive")
-        cook_time = data.get("cook_time", "medium")
-        if cook_time not in COOK_TIME_MINUTES:
-            raise ValueError(f"cook_time must be one of {list(COOK_TIME_MINUTES)}")
+        weekly_budget = weekly_budget_from(data)
+        if not weekly_budget > 0:
+            raise ValueError("weekly_budget must be positive")
+        cook_schedule = cook_schedule_from(data)
         filters = {
             k: bool(v) for k, v in (data.get("filters") or {}).items()
-            if k in ("vegetarian", "vegan", "halal", "gluten_free", "no_pork")
+            if k in FILTER_KEYS
         }
     except (KeyError, TypeError, ValueError) as e:
         raise PlanInputError(f"invalid profile input: {e}") from e
 
     goals = compute_goals(profile)
     macro_goals = {k: goals[k] for k in ("calories", "protein", "carbs", "fat")}
-    return profile, goals, macro_goals, budget, cook_time, filters
+    return profile, goals, macro_goals, weekly_budget, cook_schedule, filters
 
 
 def serialize_day(r: dict) -> dict:
@@ -353,6 +517,7 @@ def serialize_day(r: dict) -> dict:
             channel = classify_channel(row["source"])
             items.append({
                 "name": row["name"],
+                "display_name": item_label(row),
                 "source": row["source"],
                 "channel": channel,
                 "servings": int(row["servings"]),
@@ -392,8 +557,8 @@ def serialize_day(r: dict) -> dict:
     }
 
 
-def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: dict, budget: float,
-                    cook_time: str, filters: dict) -> dict:
+def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: dict, weekly_budget: float,
+                    cook_schedule: list, filters: dict) -> dict:
     week_payload = [serialize_day(r) for r in results]
 
     # Accumulated from the raw (unrounded) plan_df rows, not the already-rounded
@@ -424,8 +589,9 @@ def serialize_week(results: list, profile: Profile, goals: dict, macro_goals: di
             "activity_label": ACTIVITY_LABELS[profile.activity],
         },
         "goals": macro_goals,
-        "budget": budget,
-        "cook_time": cook_time,
+        "weekly_budget": round(weekly_budget, 2),
+        "cook_time": cook_time_label(cook_schedule),
+        "cook_schedule": cook_schedule,
         "filters": filters,
         "today": week_payload[0],
         "week": week_payload,
@@ -590,6 +756,7 @@ def _concept_card_payload(item: dict, reason: str) -> dict:
     return {
         "name": item["name"],
         "title": concept["title"],
+        "display_name": concept["title"],
         "prompt": "Would you eat this?" if concept["card"] == "dish" else "Would you eat this way?",
         "card_type": concept["card"],
         "context": context,
@@ -625,7 +792,8 @@ def swipe_card_payload(name: str, reason: str = "") -> dict:
     image_url = item.get("image_url") or ""
     return {
         "name": name,
-        "title": display_name(name),
+        "title": display_name(item_label(item)),
+        "display_name": item_label(item),
         "context": context,
         "image_url": image_url,
         # How the placeholder looks when there's no photo (recipes) or the
@@ -645,6 +813,163 @@ def swipe_card_payload(name: str, reason: str = "") -> dict:
         "carbs": round(float(item["carbs"]), 1),
         "fat": round(float(item["fat"]), 1),
     }
+
+
+@app.route("/settings")
+@auth.login_required
+def settings_page():
+    return send_from_directory(app.static_folder, "settings.html")
+
+
+def _goals_preview(goals: dict) -> dict:
+    return {k: round(float(goals[k])) for k in ("calories", "protein", "carbs", "fat")}
+
+
+def _taste_summary() -> dict:
+    """The user's own swipes (not the propagated catalog-wide bonus), latest
+    answer per food winning, split into liked / disliked."""
+    latest = {}
+    for answer in get_taste_answers():
+        latest[answer.name] = answer.liked
+    return {
+        "liked": sorted(name for name, liked in latest.items() if liked),
+        "disliked": sorted(name for name, liked in latest.items() if not liked),
+    }
+
+
+@app.route("/api/settings", methods=["GET"])
+@auth.login_required
+def api_settings_get():
+    """Everything /settings renders: the stored (or migrated) profile
+    settings, the macro targets they produce, whether a plan exists to
+    rebuild, the account identity, and the taste profile.
+
+    ``settings`` is null for an account that never finished onboarding; the
+    page then links back to onboarding instead of showing an empty form.
+    """
+    settings = load_profile_settings()
+    goals = None
+    if settings is not None:
+        try:
+            goals = _goals_preview(parse_plan_request(settings)[1])
+        except PlanInputError:
+            goals = None
+    return jsonify({
+        "settings": settings,
+        "goals": goals,
+        "has_plan": load_plan() is not None,
+        "account": {"email": g.user["email"], "username": g.user["username"]},
+        "taste": _taste_summary(),
+    })
+
+
+def _merged_settings_request(data: dict) -> dict:
+    """A settings edit (any subset of SETTINGS_KEYS) layered on the stored settings."""
+    changes = data.get("settings")
+    if not isinstance(changes, dict):
+        raise PlanInputError("settings must be an object")
+    # cook_time is accepted as the legacy spelling of a uniform schedule.
+    unknown = sorted(set(changes) - set(SETTINGS_KEYS) - {"cook_time"})
+    if unknown:
+        raise PlanInputError(f"unknown setting(s): {unknown}")
+    return with_saved_settings(changes)
+
+
+@app.route("/api/settings/preview", methods=["POST"])
+@auth.login_required
+def api_settings_preview():
+    """Macro targets for a draft edit, without saving anything, so the page
+    can show what a new weight/goal/activity would mean before committing."""
+    try:
+        merged = _merged_settings_request(request.get_json(silent=True) or {})
+        goals = parse_plan_request(merged)[1]
+    except PlanInputError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"goals": _goals_preview(goals)})
+
+
+@app.route("/api/settings", methods=["PUT"])
+@auth.login_required
+def api_settings_put():
+    """Save a settings edit. If a plan exists, the week is rebuilt from today
+    with the new settings in the same call (single-level undo via
+    /api/plan/undo restores both the old plan and the old settings), so the
+    plan on screen always matches the saved settings. With no plan yet, the
+    settings are just stored for onboarding to pick up."""
+    try:
+        merged = _merged_settings_request(request.get_json(silent=True) or {})
+        _, goals, _, weekly_budget, cook_schedule, filters = parse_plan_request(merged)
+    except PlanInputError as e:
+        return jsonify({"error": str(e)}), 400
+
+    plan = None
+    if load_plan() is not None:
+        plan, error = build_week_plan(merged)
+        if error:
+            return jsonify({"error": error}), 400
+        settings = load_profile_settings()
+    else:
+        settings = save_profile_settings(merged, weekly_budget, cook_schedule, filters)
+    return jsonify({"settings": settings, "goals": _goals_preview(goals), "plan": plan})
+
+
+@app.route("/api/settings/taste", methods=["POST"])
+@auth.login_required
+def api_settings_taste():
+    """Edit the swipe taste profile: ``{"remove": [names]}`` forgets every
+    swipe on those foods, ``{"clear": true}`` forgets all swipes. Retaking
+    the survey goes through the existing POST /api/swipe-survey, which
+    appends new answers (a later answer for the same food wins)."""
+    data = request.get_json(silent=True) or {}
+    # Swipes live in taste_picks (raw answers) plus, for older accounts, the
+    # pre-propagation taste_profile {name: bonus}; edit both.
+    picks = db.get_blob(g.user["id"], "taste_picks", default=[]) or []
+    legacy = db.get_blob(g.user["id"], "taste_profile", default={}) or {}
+    if data.get("clear"):
+        picks, legacy = [], {}
+    else:
+        remove = data.get("remove")
+        if not isinstance(remove, list):
+            return jsonify({"error": "send {remove: [names]} or {clear: true}"}), 400
+        names = {str(n) for n in remove}
+        picks = [p for p in picks if not (isinstance(p, dict) and str(p.get("name")) in names)]
+        legacy = {k: v for k, v in legacy.items() if k not in names}
+    db.set_blob(g.user["id"], "taste_picks", picks)
+    db.set_blob(g.user["id"], "taste_profile", legacy)
+    return jsonify({"taste": _taste_summary()})
+
+
+@app.route("/api/account/password", methods=["POST"])
+@auth.login_required
+def api_account_password():
+    data = request.get_json(silent=True) or {}
+    current = data.get("current_password") or ""
+    new = data.get("new_password") or ""
+    if not auth.verify_password(current, g.user["password_hash"]):
+        return jsonify({"error": "current password is incorrect"}), 403
+    if len(new) < MIN_PASSWORD_LENGTH:
+        return jsonify({"error": f"new password must be at least {MIN_PASSWORD_LENGTH} characters"}), 400
+    db.update_password_hash(g.user["id"], auth.hash_password(new))
+    return jsonify({"ok": True})
+
+
+ACCOUNT_DELETE_CONFIRMATION = "DELETE"
+
+
+@app.route("/api/account", methods=["DELETE"])
+@auth.login_required
+def api_account_delete():
+    """Permanently delete the account and every per-user blob. Needs the
+    current password plus the literal confirmation word, so a stray click
+    or a stolen-but-unlocked session alone can't do it."""
+    data = request.get_json(silent=True) or {}
+    if data.get("confirm") != ACCOUNT_DELETE_CONFIRMATION:
+        return jsonify({"error": f'type {ACCOUNT_DELETE_CONFIRMATION} to confirm'}), 400
+    if not auth.verify_password(data.get("password") or "", g.user["password_hash"]):
+        return jsonify({"error": "password is incorrect"}), 403
+    db.delete_user(g.user["id"])
+    session.clear()
+    return jsonify({"ok": True})
 
 
 @app.route("/api/swipe-cards")
@@ -725,17 +1050,29 @@ def api_swipe_survey():
 @app.route("/api/plan", methods=["POST"])
 @auth.login_required
 def api_plan():
-    data = request.get_json(silent=True) or {}
+    data = with_saved_settings(request.get_json(silent=True) or {})
+    payload, error = build_week_plan(data)
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify(payload)
 
+
+def build_week_plan(data: dict):
+    """Build, save, and return a fresh 7-day plan from a full plan request.
+
+    Returns (payload, None) or (None, error message). Also re-saves the
+    request's inputs as the user's profile settings, keeping settings and
+    plan in step. Shared by POST /api/plan and PUT /api/settings.
+    """
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, weekly_budget, cook_schedule, filters = parse_plan_request(data)
         preference_bonus = data.get("preference_bonus")
         if preference_bonus is not None:
             if not isinstance(preference_bonus, dict):
                 raise ValueError("preference_bonus must be an object")
             preference_bonus = {str(k): float(v) for k, v in preference_bonus.items()}
     except (PlanInputError, ValueError) as e:
-        return jsonify({"error": str(e)}), 400
+        return None, str(e)
 
     # The user's persisted taste profile always applies; anything explicitly
     # passed in this request (e.g. a swipe survey run this onboarding pass)
@@ -743,8 +1080,7 @@ def api_plan():
     combined_bonus = {**get_taste_profile(), **(preference_bonus or {})}
 
     today = date.today()
-    free_minutes = COOK_TIME_MINUTES[cook_time]
-    days = [DayPlan(on=today + timedelta(days=i), free_minutes=free_minutes) for i in range(7)]
+    days = week_day_plans(cook_schedule, today)
     # A real, persisted PickHistory, fed every time a plan is generated, not
     # just at reshuffle time (see backend_support.md's "Plan/session
     # persistence" note), so the anti-repetition guard has real cross-request
@@ -761,19 +1097,20 @@ def api_plan():
         # variety as the database and budget can actually support.
         channels = build_channels()
         results = plan_week_multichannel(
-            days, channels, macro_goals, budget, today=today,
+            days, channels, macro_goals, daily_budget_cap(weekly_budget, len(days)), today=today,
             filters=filters or None, history=history, rotation_cap=1, recency_penalty_weight=5.0,
             tag_rotation_cap=TAG_ROTATION_CAP, item_tags=build_catalog_item_tags(channels),
             preference_bonus=combined_bonus or None, verbose=False,
         )
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return None, str(e)
 
     save_history(history)
-    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_time, filters)
+    payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
-    return jsonify(payload)
+    save_profile_settings(data, weekly_budget, cook_schedule, filters)
+    return payload, None
 
 
 @app.route("/api/plan", methods=["GET"])
@@ -793,12 +1130,17 @@ def api_plan_get():
 def api_plan_undo():
     """Restore the plan snapshot saved right before the most recent reshuffle
     or replace-item. Single level, calling it twice in a row undoes the undo."""
-    previous = db.get_blob(g.user["id"], "plan_previous")
+    previous = normalize_plan_budget(db.get_blob(g.user["id"], "plan_previous"))
     if previous is None:
         return jsonify({"error": "nothing to undo"}), 404
     current = db.get_blob(g.user["id"], "plan")
     db.set_blob(g.user["id"], "plan", previous)
     db.set_blob(g.user["id"], "plan_previous", current)
+    # Keep settings matching the plan now on screen (undoing a settings
+    # rebuild also undoes the settings change).
+    restored = settings_from_plan(previous)
+    if restored is not None:
+        db.set_blob(g.user["id"], PROFILE_SETTINGS_KIND, restored)
     return jsonify(previous)
 
 
@@ -813,18 +1155,17 @@ def api_plan_reshuffle():
     outright wherever a feasible alternative exists, run_optimizer's own
     soft-constraint fallback covers days where it doesn't.
     """
-    data = request.get_json(silent=True) or {}
+    data = with_saved_settings(request.get_json(silent=True) or {})
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, weekly_budget, cook_schedule, filters = parse_plan_request(data)
     except PlanInputError as e:
         return jsonify({"error": str(e)}), 400
 
     week_items = data.get("week_items") or []
 
     today = date.today()
-    free_minutes = COOK_TIME_MINUTES[cook_time]
-    days = [DayPlan(on=today + timedelta(days=i), free_minutes=free_minutes) for i in range(7)]
+    days = week_day_plans(cook_schedule, today)
 
     # Steer hard away from what's currently on screen, layered on top of the
     # real persisted history so a reshuffle also avoids genuinely-recent picks,
@@ -844,7 +1185,7 @@ def api_plan_reshuffle():
     try:
         channels = build_channels()
         results = plan_week_multichannel(
-            days, channels, macro_goals, budget, today=today,
+            days, channels, macro_goals, daily_budget_cap(weekly_budget, len(days)), today=today,
             filters=filters or None, history=history, rotation_cap=1, recency_penalty_weight=5.0,
             tag_rotation_cap=TAG_ROTATION_CAP, item_tags=build_catalog_item_tags(channels),
             preference_bonus=get_taste_profile() or None, verbose=False,
@@ -858,9 +1199,10 @@ def api_plan_reshuffle():
         persisted_history.record_plan(r["plan_df"], on=r["day"])
     save_history(persisted_history)
 
-    payload = serialize_week(results, profile, goals, macro_goals, budget, cook_time, filters)
+    payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
+    save_profile_settings(data, weekly_budget, cook_schedule, filters)
     return jsonify(payload)
 
 
@@ -874,10 +1216,10 @@ def api_plan_replace_item():
     candidate pool entirely, and the optimizer re-solves just that day to
     fill the gap. One-click, no picking through alternatives.
     """
-    data = request.get_json(silent=True) or {}
+    data = with_saved_settings(request.get_json(silent=True) or {})
 
     try:
-        profile, goals, macro_goals, budget, cook_time, filters = parse_plan_request(data)
+        profile, goals, macro_goals, weekly_budget, cook_schedule, filters = parse_plan_request(data)
     except PlanInputError as e:
         return jsonify({"error": str(e)}), 400
 
@@ -909,11 +1251,11 @@ def api_plan_replace_item():
     if missing_keep:
         return jsonify({"error": f"can't keep item(s) not available today: {missing_keep}"}), 400
 
-    free_minutes = COOK_TIME_MINUTES[cook_time]
+    free_minutes = minutes_on(cook_schedule, day_on)
     history = get_history()
     try:
         plan_df, summary = run_optimizer(
-            food_df, macro_goals, budget, filters=filters or None,
+            food_df, macro_goals, daily_budget_cap(weekly_budget), filters=filters or None,
             time_budget_minutes=free_minutes, pinned_items=keep_items,
             history=history, recency_penalty_weight=2.0, as_of=day_on,
             preference_bonus=get_taste_profile() or None, verbose=False,
@@ -967,6 +1309,36 @@ class AdjustNeedsClarification(Exception):
         self.options = options
 
 
+def _match_item_name(message: str, rows) -> Optional[str]:
+    """Fuzzy-match free text against food rows, returning the matched row's raw ``name``.
+
+    People type what they were shown ("the hawaiian bagels"), which is the
+    display name, not the raw Kroger title the rest of the app keys on, so
+    both are offered to the matcher and the hit is mapped back to ``name``.
+    Raw names go in first so they win ties: several brands can share one
+    display name, so a message quoting a full title should pick that exact
+    product rather than whichever brand first claimed the shared label.
+    """
+    by_text = {}
+    for row in rows:
+        by_text.setdefault(row["name"], row["name"])
+    for row in rows:
+        by_text.setdefault(item_label(row), row["name"])
+    match = extract_item_match(message, list(by_text))
+    return by_text[match] if match is not None else None
+
+
+def _labels_for(names, *row_sources) -> dict:
+    """{raw name: display name} for ``names``, looked up in plan items / food_df records."""
+    wanted = set(names)
+    labels = {}
+    for rows in row_sources:
+        for row in rows:
+            if row["name"] in wanted and row["name"] not in labels:
+                labels[row["name"]] = item_label(row)
+    return {n: labels.get(n, n) for n in names}
+
+
 def _parse_adjust_directive(message: str, plan: dict) -> dict:
     """Turn a free-text message into a structured directive against ``plan``.
 
@@ -1018,10 +1390,10 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
         # already relies on, first against what's actually on this day's
         # plan, then against the day's full candidate catalog so a dislike
         # can name any food, not just one already plated.
-        day_item_names = [i["name"] for i in day_json["items"]]
-        item_match = extract_item_match(message, day_item_names)
+        food_rows = food_df.to_dict("records")
+        item_match = _match_item_name(message, day_json["items"])
         if item_match is None:
-            item_match = extract_item_match(message, food_df["name"].tolist())
+            item_match = _match_item_name(message, food_rows)
         if item_match is None:
             raise AdjustNeedsClarification(
                 "What food would you like to avoid? You can name a specific "
@@ -1035,21 +1407,29 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
             "match_kind": "item",
             "tag": item_match,
             "matched_names": [item_match],
+            "labels": _labels_for([item_match], day_json["items"], food_rows),
         }
 
     # intent == "deviation"
-    day_item_names = [i["name"] for i in day_json["items"]]
-    planned_item = extract_item_match(message, day_item_names)
+    planned_item = _match_item_name(message, day_json["items"])
     if planned_item is None:
+        # Options are display names: adjust.js resends the message with the
+        # picked option appended, and _match_item_name matches those too.
         raise AdjustNeedsClarification(
-            f"Which item from {_weekday_date_label(on)}'s plan did you skip?", day_item_names,
+            f"Which item from {_weekday_date_label(on)}'s plan did you skip?",
+            [item_label(i) for i in day_json["items"]],
         )
-    # Excludes the planned item's own name from the search space so a
-    # message that mentions both items doesn't have the planned item
-    # winning its own fuzzy match as "what was actually eaten."
+    # Excludes the planned item from the search space so a message that
+    # mentions both items doesn't have the planned item winning its own fuzzy
+    # match as "what was actually eaten." That means its display name too:
+    # other brands of the same food share it ("Plain Bagels"), and would
+    # otherwise match the planned item's words perfectly.
     food_df, _viable = _food_df_for_day(day_json["days_out"])
-    actual_candidates = [n for n in food_df["name"].tolist() if n != planned_item]
-    actual_item = extract_item_match(message, actual_candidates)
+    food_rows = food_df.to_dict("records")
+    planned_label = next((item_label(i) for i in day_json["items"] if i["name"] == planned_item), planned_item)
+    actual_item = _match_item_name(message, [
+        r for r in food_rows if r["name"] != planned_item and item_label(r) != planned_label
+    ])
     if actual_item is None:
         raise AdjustNeedsClarification(
             "I couldn't confidently match what you actually ate against the food "
@@ -1062,19 +1442,25 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
         "days_out": day_json["days_out"],
         "planned_item": planned_item,
         "actual_item": actual_item,
+        "labels": _labels_for([planned_item, actual_item], day_json["items"], food_rows),
     }
 
 
 def _adjust_preview(directive: dict, plan: dict) -> str:
     on = date.fromisoformat(directive["date"])
     label = _weekday_date_label(on)
+    day_json = next(d for d in plan["week"] if d["date"] == directive["date"])
+    shown = {**{i["name"]: item_label(i) for i in day_json["items"]}, **directive.get("labels", {})}
+
+    def show(name: str) -> str:
+        return shown.get(name, name)
 
     if directive["type"] == "feedback":
         matched = directive["matched_names"]
         if not matched:
             return f"Nothing on {label} matches '{directive['tag']}', so this won't change that day's plan."
         if directive.get("match_kind") == "item":
-            return f"On {label}, I'll drop {', '.join(matched)} from the plan and re-solve that day."
+            return f"On {label}, I'll drop {', '.join(show(n) for n in matched)} from the plan and re-solve that day."
 
         # matched_names is every catalog item the tag covers, not just what's
         # plated today, resolve_tag_to_item_names has to return the whole set
@@ -1083,8 +1469,7 @@ def _adjust_preview(directive: dict, plan: dict) -> str:
         # like a dozen items are being pulled off a day that only had two.
         # Say what's actually leaving the plan, then name the exclusion
         # separately.
-        day_json = next(d for d in plan["week"] if d["date"] == directive["date"])
-        currently_plated = [i["name"] for i in day_json["items"] if i["name"] in matched]
+        currently_plated = [item_label(i) for i in day_json["items"] if i["name"] in matched]
         tag = directive["tag"]
         if currently_plated:
             return (
@@ -1099,8 +1484,8 @@ def _adjust_preview(directive: dict, plan: dict) -> str:
     next_on = on + timedelta(days=1)
     has_next_day = any(d["date"] == next_on.isoformat() for d in plan["week"])
     preview = (
-        f"I'll log that you had '{directive['actual_item']}' instead of "
-        f"'{directive['planned_item']}' on {label}, and update that day's totals"
+        f"I'll log that you had '{show(directive['actual_item'])}' instead of "
+        f"'{show(directive['planned_item'])}' on {label}, and update that day's totals"
     )
     preview += f", carrying the difference into {_weekday_date_label(next_on)}'s goals." if has_next_day else "."
     return preview
@@ -1115,11 +1500,11 @@ def _apply_feedback_directive(directive: dict, plan: dict) -> dict:
     food_df, viable = _food_df_for_day(days_out)
     keep_items = [i["name"] for i in day_json["items"] if i["name"] not in matched_names]
 
-    free_minutes = COOK_TIME_MINUTES[plan["cook_time"]]
+    free_minutes = minutes_on(cook_schedule_from(plan), on)
     day = DayPlan(on=on, free_minutes=free_minutes, pinned_items=keep_items)
     history = get_history()
     plan_df, summary = exclude_and_resolve(
-        food_df, day, matched_names, plan["goals"], plan["budget"],
+        food_df, day, matched_names, plan["goals"], daily_budget_cap(weekly_budget_from(plan)),
         filters=plan["filters"] or None, history=history,
         recency_penalty_weight=2.0, as_of=on,
         preference_bonus=get_taste_profile() or None, verbose=False,
@@ -1165,6 +1550,7 @@ def _apply_deviation_directive(directive: dict, plan: dict) -> dict:
     new_items = [i for i in day_json["items"] if i["name"] != planned_name]
     new_items.append({
         "name": actual_name,
+        "display_name": item_label(actual_row),
         "source": actual_row["source"],
         "channel": classify_channel(actual_row["source"]),
         "servings": 1,
@@ -1198,12 +1584,12 @@ def _apply_deviation_directive(directive: dict, plan: dict) -> dict:
     next_day_json = next((d for d in plan["week"] if d["date"] == next_on.isoformat()), None)
     if next_day_json is not None:
         next_goals = carry_forward_goals(goals, delta)
-        free_minutes = COOK_TIME_MINUTES[plan["cook_time"]]
+        free_minutes = minutes_on(cook_schedule_from(plan), next_on)
         next_food_df, next_viable = _food_df_for_day(next_day_json["days_out"])
         next_day = DayPlan(on=next_on, free_minutes=free_minutes, goals=next_goals)
         history = get_history()
         next_plan_df, next_summary = run_optimizer(
-            next_food_df, next_goals, plan["budget"], filters=plan["filters"] or None,
+            next_food_df, next_goals, daily_budget_cap(weekly_budget_from(plan)), filters=plan["filters"] or None,
             time_budget_minutes=next_day.free_minutes, history=history,
             recency_penalty_weight=2.0, as_of=next_on,
             preference_bonus=get_taste_profile() or None, verbose=False,
@@ -1292,6 +1678,7 @@ def _product_payload(item: dict, channel_label: str) -> dict:
     return {
         "type": "product",
         "name": item["name"],
+        "display_name": item_label(item),
         "category": item.get("category", ""),
         "channel": channel_label,
         "location": item.get("location", ""),

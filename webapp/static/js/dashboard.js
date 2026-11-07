@@ -11,7 +11,7 @@ function renderStatRow() {
     { label: "BMR", value: `${plan.profile.bmr}`, sub: "kcal/day at rest" },
     { label: "Maintenance (TDEE)", value: `${plan.profile.tdee}`, sub: "kcal/day" },
     { label: "Daily calorie target", value: `${plan.goals.calories}`, sub: `${plan.goals.protein}g P · ${plan.goals.carbs}g C · ${plan.goals.fat}g F` },
-    { label: "Daily budget", value: formatMoney(plan.budget), sub: `${formatMoney(plan.week_summary.avg_daily_cost)} avg spent` },
+    { label: "Weekly budget", value: formatMoney(plan.weekly_budget), sub: `${formatMoney(plan.week_summary.total_cost)} planned · ${monthlyHint(plan.weekly_budget)}` },
   ];
   tiles.forEach((t) => {
     const tile = el("div", "stat-tile");
@@ -34,7 +34,7 @@ function renderToday() {
   plan.today.items.forEach((item) => {
     const li = el("li");
     const left = el("div");
-    left.appendChild(el("div", "plan-item-name", `<a class="item-link" href="${recipeHref(item)}">${item.name}</a> ${item.servings > 1 ? `<span class="item-qty">×${item.servings}</span>` : ""}`));
+    left.appendChild(el("div", "plan-item-name", `<a class="item-link" href="${recipeHref(item)}">${itemLabel(item)}</a> ${item.servings > 1 ? `<span class="item-qty">×${item.servings}</span>` : ""}`));
     const badgeClass = CHANNEL_BADGE_CLASS[item.channel] || "badge-channel-home";
     left.appendChild(el("div", "plan-item-meta", `<span class="badge ${badgeClass}">${item.channel}</span><span>${itemMetaLine(item)}</span>`));
     li.appendChild(left);
@@ -87,6 +87,7 @@ if (plan) {
   renderMacroMeters();
   renderBudgetMeter(plan);
   renderChannelBars(plan);
+  mountCookScheduleCard(plan);
 
   document.getElementById("loading").style.display = "none";
   document.getElementById("dashboard-root").style.display = "block";

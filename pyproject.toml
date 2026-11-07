@@ -22,3 +22,5 @@ macro_optimizer = ["data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# This checkout's src first, so a worktree tests its own code, not an editable install elsewhere.
+pythonpath = ["src"]

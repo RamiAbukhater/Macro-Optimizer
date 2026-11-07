@@ -1,0 +1,192 @@
+/* Settings page. Layers on style.css tokens; kept in its own file (like
+   cook-schedule.css) so it doesn't collide with other branches' style.css edits. */
+
+.settings-main { max-width: 860px; }
+
+.settings-jump {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -12px 0 22px;
+}
+
+.settings-jump a {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--ink-2);
+  padding: 6px 11px;
+  border: 1px dashed var(--rule-strong);
+  border-radius: 999px;
+}
+
+.settings-jump a:hover { color: var(--ink); border-color: var(--ink); }
+.settings-jump a[hidden] { display: none; }
+
+#settings-root section.card { scroll-margin-top: 24px; margin-bottom: 18px; }
+.settings-empty p { margin: 0 0 16px; max-width: 56ch; }
+
+.settings-subhint { margin: -2px 0 10px; }
+
+/* Goal cards are <button>s here (keyboard reachable); keep style.css's
+   .goal-card look (font, colors) and only undo button defaults. */
+#s-goal-cards .goal-card { text-align: left; align-items: flex-start; }
+
+/* ---------- Live macro targets ---------- */
+
+.targets { border-top: 1px dashed var(--rule-strong); padding-top: 16px; margin-top: 4px; }
+
+.targets-label {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 10px;
+}
+
+.targets-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+
+.target-tile { min-width: 0; }
+
+.target-value {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.target-value span { font-family: var(--font-mono); font-size: 12px; font-weight: 400; margin-left: 3px; color: var(--ink-3); }
+
+.target-delta { font-family: var(--font-mono); font-size: 11.5px; }
+.target-delta.up { color: var(--tomato); }
+.target-delta.down { color: var(--herb); }
+
+/* ---------- Sticky save bar ---------- */
+
+.save-bar {
+  position: sticky;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+  margin: 4px 0 26px;
+  padding: 12px 14px 12px 18px;
+  background: var(--ticket);
+  border: 1.5px solid var(--rule-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.45);
+}
+
+/* Only pinned to the viewport while there's something to save. */
+.save-bar:not(.is-dirty) { position: static; box-shadow: none; }
+.save-bar.is-dirty { border-color: var(--ink); box-shadow: 4px 4px 0 var(--tomato); }
+
+.save-bar-text { font-size: 14px; color: var(--ink-2); flex: 1 1 240px; }
+.save-bar.is-dirty .save-bar-text { color: var(--ink); font-weight: 600; }
+
+.save-bar-actions { display: flex; gap: 8px; }
+.save-bar-actions [hidden] { display: none; }
+
+/* ---------- Taste profile ---------- */
+
+.taste-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+
+.taste-head {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+}
+
+.taste-head .num { color: var(--ink); margin-left: 4px; }
+
+.taste-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.taste-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 4px 4px 4px 11px;
+  border-radius: 999px;
+  font-size: 13px;
+  border: 1px solid var(--rule-strong);
+  background: var(--ticket);
+}
+
+.taste-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.taste-liked { border-color: color-mix(in srgb, var(--herb) 55%, transparent); background: var(--good-soft); }
+.taste-disliked { border-color: color-mix(in srgb, var(--tomato) 45%, transparent); background: var(--accent-soft); }
+
+.taste-remove {
+  border: none;
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 16px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.taste-remove:hover { color: var(--ink); background: color-mix(in srgb, var(--ink) 9%, transparent); }
+
+.taste-note { margin: 16px 0 0; }
+
+.settings-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 14px; }
+
+.survey-modal { max-width: 460px; }
+.survey-modal .swipe-stack { margin-top: 14px; }
+
+/* ---------- Account ---------- */
+
+.account-ids { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.account-ids > div > div { margin-top: 4px; font-weight: 600; overflow-wrap: anywhere; }
+
+#account-section h3 { margin: 0 0 12px; font-size: 17px; }
+
+.form-status { font-family: var(--font-mono); font-size: 12.5px; }
+.form-status.ok { color: var(--herb); }
+.form-status.bad { color: var(--tomato); }
+
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 18px;
+  padding: 12px 0;
+}
+
+.danger-zone + .danger-zone { border-top: 1px dashed var(--rule-strong); }
+.danger-zone h3 { margin-bottom: 2px !important; }
+.danger-zone p { margin: 0; }
+.danger-zone button { flex-shrink: 0; }
+
+/* ---------- Narrow screens ---------- */
+
+@media (max-width: 860px) {
+  /* Clear the fixed bottom tab bar. */
+  .save-bar { bottom: calc(78px + env(safe-area-inset-bottom)); }
+}
+
+@media (max-width: 600px) {
+  .settings-jump { margin-top: -6px; }
+  .targets-row { grid-template-columns: 1fr 1fr; gap: 14px 12px; }
+  .taste-cols, .account-ids { grid-template-columns: 1fr; }
+  .save-bar { padding: 12px; }
+  .save-bar-actions { width: 100%; }
+  .save-bar-actions button { flex: 1; }
+  .danger-zone { flex-direction: column; align-items: stretch; }
+}

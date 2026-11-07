@@ -1,0 +1,53 @@
+/* Per-day cooking schedule editor (dashboard) and onboarding weekend toggle.
+   Kept out of style.css so it layers on top of whatever the shared theme is. */
+
+.cook-schedule { display: flex; flex-direction: column; gap: 8px; }
+
+.cook-row {
+  display: grid;
+  grid-template-columns: 44px auto auto;
+  justify-content: start;
+  align-items: center;
+  gap: 10px 16px;
+}
+
+.cook-day { font-weight: 600; font-size: 13.5px; }
+
+.cook-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.cook-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-card);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 52px;
+}
+.cook-chip:hover { border-color: var(--accent); }
+.cook-chip.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.cook-custom { display: flex; align-items: center; gap: 4px; font-size: 12.5px; color: var(--text-muted); }
+.cook-custom input.cook-minutes { width: 64px; padding: 6px 8px; }
+
+.cook-schedule-actions { display: flex; align-items: center; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.cook-schedule-actions button.primary { width: auto; padding: 10px 20px; }
+#cook-schedule-status { font-size: 13px; color: var(--text-muted); }
+
+/* Onboarding: "Weekends are different" reveal */
+.cook-weekend-toggle { margin-top: 8px; }
+#cook_time_weekend_field { margin-top: 8px; }
+
+@media (max-width: 560px) {
+  .cook-row { grid-template-columns: 40px 1fr; gap: 6px 10px; }
+  .cook-custom { grid-column: 2; }
+  .cook-chip { min-width: 0; padding: 6px 10px; }
+  .cook-schedule-actions button.primary { width: 100%; }
+}

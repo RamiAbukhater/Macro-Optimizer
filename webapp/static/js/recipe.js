@@ -60,7 +60,8 @@ function renderRecipe(data) {
 
 function renderProduct(data) {
   document.getElementById("recipe-eyebrow").textContent = data.category || data.channel;
-  document.getElementById("recipe-title").textContent = data.name;
+  document.getElementById("recipe-title").textContent = itemLabel(data);
+  document.title = `${itemLabel(data)} · AutoEat`;
   document.getElementById("recipe-price").textContent = formatMoney(data.per_serving.price);
 
   const badges = document.getElementById("recipe-badges");
@@ -84,8 +85,12 @@ function renderProduct(data) {
 
   document.getElementById("source-card").style.display = "block";
   const locationLine = data.location ? `<p style="margin:0 0 8px;"><strong>Where:</strong> ${data.location} (${data.serving_unit})</p>` : "";
+  // The full product title, brand and size included, is what's on the shelf.
+  const productLine = data.display_name && data.display_name !== data.name
+    ? `<p style="margin:0 0 8px;"><strong>Product:</strong> ${data.name}</p>` : "";
   const allergenLine = data.allergens.length ? `<p style="margin:0 0 8px;"><strong>Allergens:</strong> ${data.allergens.join(", ")}</p>` : "";
   document.getElementById("source-body").innerHTML = `
+    ${productLine}
     ${locationLine}
     ${allergenLine}
     <p style="margin:0;font-size:12.5px;color:var(--text-muted);">This is a ${data.channel.toLowerCase()} item, not a home-cooked recipe &mdash; no ingredient breakdown applies. A real product link/menu URL isn't wired up yet, see backend_support.md.</p>`;

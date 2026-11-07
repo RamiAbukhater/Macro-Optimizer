@@ -53,7 +53,7 @@ VALID_PAYLOAD = {
     "weight_lbs": 170,
     "activity": "moderate",
     "goal": "lose_fat",
-    "budget": 25,
+    "weekly_budget": 175,
     "cook_time": "medium",
     "filters": {},
 }
@@ -74,7 +74,7 @@ def test_api_plan_valid_payload_returns_full_shape(client):
     resp = client.post("/api/plan", json=VALID_PAYLOAD)
     assert resp.status_code == 200
     body = resp.get_json()
-    for key in ("profile", "goals", "budget", "today", "week", "week_summary", "channel_totals"):
+    for key in ("profile", "goals", "weekly_budget", "today", "week", "week_summary", "channel_totals"):
         assert key in body
     assert len(body["week"]) == 7
     assert body["goals"]["calories"] > 0
@@ -114,13 +114,13 @@ def test_api_plan_invalid_goal_returns_400(client):
 
 
 def test_api_plan_negative_budget_returns_400(client):
-    payload = {**VALID_PAYLOAD, "budget": -5}
+    payload = {**VALID_PAYLOAD, "weekly_budget": -5}
     resp = client.post("/api/plan", json=payload)
     assert resp.status_code == 400
 
 
 def test_api_plan_respects_dietary_filter(client):
-    payload = {**VALID_PAYLOAD, "budget": 40, "filters": {"vegan": True}}
+    payload = {**VALID_PAYLOAD, "weekly_budget": 280, "filters": {"vegan": True}}
     resp = client.post("/api/plan", json=payload)
     assert resp.status_code == 200
     body = resp.get_json()
@@ -145,7 +145,7 @@ def test_api_plan_default_settings_produce_meaningfully_distinct_days(client):
     duplicate of each other, and no pair of days shares more than half of
     either day's items, both of which the old rotation_cap=3 default (three
     real day-for-day repeats before any exclusion kicked in) regularly broke."""
-    payload = {**VALID_PAYLOAD, "budget": 35, "goal": "maintain"}
+    payload = {**VALID_PAYLOAD, "weekly_budget": 245, "goal": "maintain"}
     resp = client.post("/api/plan", json=payload)
     assert resp.status_code == 200
     body = resp.get_json()
@@ -191,7 +191,7 @@ def test_reshuffle_returns_full_week_shape(client):
     resp = client.post("/api/plan/reshuffle", json={**VALID_PAYLOAD, "week_items": []})
     assert resp.status_code == 200
     body = resp.get_json()
-    for key in ("profile", "goals", "budget", "today", "week", "week_summary", "channel_totals"):
+    for key in ("profile", "goals", "weekly_budget", "today", "week", "week_summary", "channel_totals"):
         assert key in body
     assert len(body["week"]) == 7
 
@@ -365,7 +365,7 @@ def test_pantry_is_wired_into_recipe_cost_via_plan_endpoint(client):
     client.post("/api/pantry", json={"ingredient": "white_rice_dry", "quantity": 5000})
     client.post("/api/pantry", json={"ingredient": "broccoli_fresh", "quantity": 5000})
     client.post("/api/pantry", json={"ingredient": "olive_oil", "quantity": 5000})
-    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "budget": 60})
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "weekly_budget": 420})
     assert resp.status_code == 200
 
     recipe = client.get("/api/recipe/Chicken & Rice Bowl").get_json()
@@ -777,6 +777,43 @@ def test_api_swipe_cards_returns_a_deck_of_unique_concept_cards(client):
             assert key in card
 
 
+def test_api_swipe_cards_show_clean_display_names_but_keep_raw_names(client):
+    import app as app_module
+
+    # Concept cards: the display name is the dish title, the key is the concept id.
+    cards = client.get("/api/swipe-cards").get_json()["cards"]
+    assert all(c["display_name"] == c["title"] and c["name"].startswith("concept:") for c in cards)
+    # Store products are no longer dealt, but their card payload (still built
+    # for legacy answers) keeps the clean name / raw key split.
+    kroger_names = [it["name"] for it in app_module.taste_model().items if it.get("source") == "Kroger API"]
+    assert kroger_names, "expected Kroger catalog items in the taste model"
+    with app_module.app.app_context():
+        kroger = [app_module.swipe_card_payload(n) for n in kroger_names]
+    assert all(c["display_name"] and "®" not in c["display_name"] and "™" not in c["display_name"] for c in kroger)
+    # The raw title is still the key taste picks are recorded under.
+    assert any(c["display_name"] != c["name"] for c in kroger)
+
+
+def test_plan_items_carry_display_names(client):
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    items = [i for d in plan["week"] for i in d["items"]]
+    assert items and all(i["display_name"] for i in items)
+
+
+def test_adjust_matches_and_previews_by_display_name(client):
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    today = plan["today"]
+    shown = [i for i in today["items"] if i["display_name"] != i["name"]]
+    if not shown:
+        pytest.skip("today's plan has no item whose display name differs from its raw title")
+    item = shown[0]
+    body = client.post("/api/plan/adjust", json={"message": f"I didn't like the {item['display_name']} today"}).get_json()
+    assert body["status"] == "confirm"
+    assert body["directive"]["matched_names"] == [item["name"]]
+    assert item["display_name"] in body["preview"]
+    assert item["name"] not in body["preview"]
+
+
 def test_api_swipe_survey_maps_liked_and_disliked_picks_to_signed_bonus(client):
     picks = {"picks": [{"name": "Apple", "liked": True}, {"name": "Banana", "liked": False}]}
     resp = client.post("/api/swipe-survey", json=picks)
@@ -886,10 +923,11 @@ def test_concept_swipes_score_the_catalog_and_never_leak_into_the_bonus(client):
     items = {row["name"]: row for row in load_market_items()}
     frozen_pizzas = [n for n, r in items.items() if r.get("kind") == "frozen pizza"]
     assert sum(bonus.get(n, 0) < 0 for n in frozen_pizzas) >= len(frozen_pizzas) // 2
-    # Loving tacos but not frozen meals: a fresh chicken wrap beats a frozen chicken burrito.
-    wraps = [n for n, r in items.items() if r.get("kind") == "deli sandwich" and "Chicken" in n]
-    burritos = [n for n, r in items.items() if r.get("kind") == "frozen burrito" and "Chicken" in n]
-    assert max(bonus.get(n, 0) for n in wraps) > max(bonus.get(n, 0) for n in burritos)
+    # Loving chicken tacos but not frozen meals: fresh deli chicken beats frozen chicken.
+    fresh = [n for n, r in items.items() if r.get("kind") == "deli chicken"]
+    frozen = [n for n, r in items.items() if r.get("kind") in ("frozen meal", "frozen chicken strips") and "Chicken" in n]
+    assert fresh and frozen
+    assert max(bonus.get(n, 0) for n in fresh) > max(bonus.get(n, 0) for n in frozen)
 
 
 def test_recipes_get_a_bonus_through_shared_features(client):
@@ -1034,3 +1072,311 @@ def test_pantry_and_plan_isolated_between_users(client):
 
     other_plan = other.get("/api/plan")
     assert other_plan.status_code == 404
+
+
+# --- weekly budget (user-facing) vs. daily budget_cap (optimizer) ---
+
+def _legacy_payload(daily):
+    payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "weekly_budget"}
+    payload["budget"] = daily
+    return payload
+
+
+def _capture_plan_week_cap(monkeypatch):
+    """Wrap plan_week_multichannel so a test can see the daily cap it got."""
+    import app as app_module
+    seen = {}
+    real = app_module.plan_week_multichannel
+
+    def spy(days, channels, macro_goals, default_budget_cap, *args, **kwargs):
+        seen["cap"] = default_budget_cap
+        seen["days"] = len(days)
+        return real(days, channels, macro_goals, default_budget_cap, *args, **kwargs)
+
+    monkeypatch.setattr(app_module, "plan_week_multichannel", spy)
+    return seen
+
+
+def test_weekly_budget_is_split_into_a_daily_cap_for_the_optimizer(client, monkeypatch):
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan", json={**VALID_PAYLOAD, "weekly_budget": 210}).get_json()
+    assert body["weekly_budget"] == 210
+    assert "budget" not in body
+    assert seen["days"] == 7
+    assert seen["cap"] == pytest.approx(30.0)
+
+
+def test_reshuffle_also_uses_weekly_budget_divided_by_days(client, monkeypatch):
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan/reshuffle", json={**VALID_PAYLOAD, "weekly_budget": 140, "week_items": []}).get_json()
+    assert body["weekly_budget"] == 140
+    assert seen["cap"] == pytest.approx(20.0)
+
+
+def test_legacy_daily_budget_in_request_is_read_as_times_seven(client, monkeypatch):
+    # An old cached frontend (or sessionStorage plan) still sends a DAILY
+    # `budget`; $25 must mean $25/day = $175/week, not $25/week.
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan", json=_legacy_payload(25)).get_json()
+    assert body["weekly_budget"] == 175
+    assert seen["cap"] == pytest.approx(25.0)
+
+
+def test_weekly_budget_wins_over_legacy_budget_when_both_sent(client, monkeypatch):
+    seen = _capture_plan_week_cap(monkeypatch)
+    body = client.post("/api/plan", json={**_legacy_payload(25), "weekly_budget": 70}).get_json()
+    assert body["weekly_budget"] == 70
+    assert seen["cap"] == pytest.approx(10.0)
+
+
+def test_missing_budget_defaults_to_175_a_week(client):
+    payload = {k: v for k, v in VALID_PAYLOAD.items() if k != "weekly_budget"}
+    body = client.post("/api/plan", json=payload).get_json()
+    assert body["weekly_budget"] == 175
+
+
+@pytest.mark.parametrize("bad", [0, -5, "abc"])
+def test_invalid_weekly_budget_returns_400(client, bad):
+    resp = client.post("/api/plan", data=json.dumps({**VALID_PAYLOAD, "weekly_budget": bad}),
+                       content_type="application/json")
+    assert resp.status_code == 400
+
+
+def test_replace_item_uses_daily_cap_from_weekly_budget(client, monkeypatch):
+    import app as app_module
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    day = next(d for d in plan["week"] if len(d["items"]) >= 2)
+
+    seen = {}
+    real = app_module.run_optimizer
+
+    def spy(food_df, goals, budget_cap, *args, **kwargs):
+        seen["cap"] = budget_cap
+        return real(food_df, goals, budget_cap, *args, **kwargs)
+
+    monkeypatch.setattr(app_module, "run_optimizer", spy)
+    resp = client.post("/api/plan/replace-item", json={
+        **VALID_PAYLOAD, "weekly_budget": 350,
+        "date": day["date"], "days_out": day["days_out"],
+        "replace_name": day["items"][0]["name"], "current_items": day["items"],
+    })
+    assert resp.status_code == 200, resp.get_json()
+    assert seen["cap"] == pytest.approx(50.0)
+
+
+def _store_legacy_plan(client, key="plan"):
+    """Rewrite the saved plan blob the way it looked before the weekly switch:
+    a DAILY `budget` field and no `weekly_budget`."""
+    import db as db_module
+    plan = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    plan.pop("weekly_budget")
+    plan["budget"] = 25
+    user_id = db_module.get_user_by_identifier("test@example.com")["id"]
+    db_module.set_blob(user_id, key, plan)
+    return plan
+
+
+def test_get_plan_upgrades_legacy_daily_budget_to_weekly(client):
+    _store_legacy_plan(client)
+    body = client.get("/api/plan").get_json()
+    assert body["weekly_budget"] == 175
+    assert "budget" not in body
+
+
+def test_undo_upgrades_legacy_previous_plan(client):
+    _store_legacy_plan(client, key="plan_previous")
+    body = client.post("/api/plan/undo").get_json()
+    assert body["weekly_budget"] == 175
+    assert "budget" not in body
+
+
+def test_budget_helpers():
+    import app as app_module
+    assert app_module.weekly_budget_from({"weekly_budget": 140}) == 140
+    assert app_module.weekly_budget_from({"budget": 25}) == 175
+    assert app_module.weekly_budget_from({"weekly_budget": 70, "budget": 25}) == 70
+    assert app_module.weekly_budget_from({}) == app_module.DEFAULT_WEEKLY_BUDGET
+    assert app_module.daily_budget_cap(175) == pytest.approx(25.0)
+    assert app_module.daily_budget_cap(150, days=5) == pytest.approx(30.0)
+    legacy = {"budget": 30, "week": []}
+    assert app_module.normalize_plan_budget(legacy) == {"weekly_budget": 210, "week": []}
+    assert app_module.normalize_plan_budget(None) is None
+
+
+# --- per-day cooking schedule ---
+
+from datetime import timedelta  # noqa: E402
+
+import app as app_module  # noqa: E402
+
+SCHEDULE = [20, 20, 20, 20, 20, 90, 0]  # Mon..Sun: short weekdays, long Saturday, no-cook Sunday
+
+
+def test_cook_schedule_from_prefers_explicit_schedule():
+    assert app_module.cook_schedule_from({"cook_schedule": SCHEDULE, "cook_time": "high"}) == SCHEDULE
+
+
+@pytest.mark.parametrize("label,minutes", [("low", 20), ("medium", 45), ("high", 90)])
+def test_cook_schedule_from_expands_legacy_cook_time(label, minutes):
+    assert app_module.cook_schedule_from({"cook_time": label}) == [minutes] * 7
+
+
+def test_cook_schedule_from_defaults_to_medium():
+    assert app_module.cook_schedule_from({}) == [45] * 7
+
+
+@pytest.mark.parametrize("bad", [
+    [30] * 6, [30] * 8, "30", [30] * 6 + [-5], [30] * 6 + [999], [30] * 6 + ["x"], [True] * 7,
+])
+def test_cook_schedule_from_rejects_malformed(bad):
+    with pytest.raises(ValueError):
+        app_module.cook_schedule_from({"cook_schedule": bad})
+
+
+def test_cook_time_label_names_uniform_presets_else_custom():
+    assert app_module.cook_time_label([90] * 7) == "high"
+    assert app_module.cook_time_label(SCHEDULE) == "custom"
+
+
+def _spy(monkeypatch, name):
+    """Wrap app_module.<name> so calls still run for real; record (args, kwargs, result)."""
+    real = getattr(app_module, name)
+    calls = []
+
+    def wrapper(*args, **kwargs):
+        result = real(*args, **kwargs)
+        calls.append((args, kwargs, result))
+        return result
+
+    monkeypatch.setattr(app_module, name, wrapper)
+    return calls
+
+
+def test_api_plan_maps_schedule_onto_each_dates_weekday(client, monkeypatch):
+    calls = _spy(monkeypatch, "plan_week_multichannel")
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE})
+    assert resp.status_code == 200, resp.get_json()
+    days = calls[0][0][0]
+    assert len(days) == 7
+    for d in days:
+        assert d.free_minutes == SCHEDULE[d.on.weekday()]
+
+    body = resp.get_json()
+    assert body["cook_schedule"] == SCHEDULE
+    assert body["cook_time"] == "custom"
+    assert client.get("/api/plan").get_json()["cook_schedule"] == SCHEDULE
+
+
+def test_api_plan_legacy_cook_time_still_works_and_echoes_schedule(client):
+    body = client.post("/api/plan", json=VALID_PAYLOAD).get_json()
+    assert body["cook_time"] == "medium"
+    assert body["cook_schedule"] == [45] * 7
+
+
+def test_api_plan_rejects_bad_schedule(client):
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": [30, 30]})
+    assert resp.status_code == 400
+    assert "cook_schedule" in resp.get_json()["error"]
+
+
+def test_each_day_respects_its_own_minutes_and_long_day_differs(client, monkeypatch):
+    # Recipes only: with ready-to-eat groceries in the pool, whether a long
+    # day chooses to cook depends on store prices, not on the schedule.
+    monkeypatch.setattr("macro_optimizer.channels.load_market_items", lambda: [])
+    calls = _spy(monkeypatch, "plan_week_multichannel")
+    resp = client.post("/api/plan", json={**VALID_PAYLOAD, "budget": 35, "cook_schedule": SCHEDULE})
+    assert resp.status_code == 200
+    results = calls[0][2]
+
+    used_by_weekday = {}
+    for r in results:
+        allowed = SCHEDULE[r["day"].weekday()]
+        df = r["plan_df"]
+        used = float((df["total_time_minutes"] * df["servings"]).sum()) if not df.empty else 0.0
+        assert used <= allowed + 1e-6, (r["day"], allowed, used)
+        used_by_weekday[r["day"].weekday()] = used
+    # The 90-minute Saturday actually uses more than a 20-minute weekday allows.
+    assert used_by_weekday[5] > 20
+
+
+def test_reshuffle_uses_schedule(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    calls = _spy(monkeypatch, "plan_week_multichannel")
+    resp = client.post("/api/plan/reshuffle", json={
+        **VALID_PAYLOAD, "cook_time": plan["cook_time"], "cook_schedule": plan["cook_schedule"], "week_items": [],
+    })
+    assert resp.status_code == 200
+    for d in calls[0][0][0]:
+        assert d.free_minutes == SCHEDULE[d.on.weekday()]
+    assert resp.get_json()["cook_schedule"] == SCHEDULE
+
+
+def test_replace_item_uses_that_dates_minutes(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    day = next(d for d in plan["week"] if d["items"])
+    calls = _spy(monkeypatch, "run_optimizer")
+    client.post("/api/plan/replace-item", json={
+        **VALID_PAYLOAD, "cook_schedule": SCHEDULE,
+        "date": day["date"], "days_out": day["days_out"],
+        "replace_name": day["items"][0]["name"], "current_items": day["items"],
+    })
+    assert calls, "run_optimizer was never reached"
+    assert calls[0][1]["time_budget_minutes"] == SCHEDULE[date.fromisoformat(day["date"]).weekday()]
+
+
+def _feedback_message(plan):
+    day, _tag, synonym, _item = _find_feedback_target(plan)
+    assert day is not None
+    weekday = date.fromisoformat(day["date"]).strftime("%A").lower()
+    return day, f"I'm sick of {synonym} on {weekday}"
+
+
+def test_adjust_feedback_regenerates_day_with_schedule_minutes(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    day, message = _feedback_message(plan)
+    calls = _spy(monkeypatch, "exclude_and_resolve")
+    client.post("/api/plan/adjust", json={"message": message})
+    resp = client.post("/api/plan/adjust", json={"message": message, "confirmed": True})
+    assert resp.status_code == 200
+    assert calls[0][0][1].free_minutes == SCHEDULE[date.fromisoformat(day["date"]).weekday()]
+
+
+def test_adjust_feedback_on_legacy_saved_plan_uses_cook_time(client, monkeypatch):
+    import db as db_module
+
+    client.post("/api/plan", json=VALID_PAYLOAD)
+    uid = _test_user_id()
+    plan = db_module.get_blob(uid, "plan")
+    plan.pop("cook_schedule", None)  # what a plan saved before per-day schedules looks like
+    plan["cook_time"] = "high"
+    db_module.set_blob(uid, "plan", plan)
+
+    _day, message = _feedback_message(plan)
+    calls = _spy(monkeypatch, "exclude_and_resolve")
+    client.post("/api/plan/adjust", json={"message": message})
+    resp = client.post("/api/plan/adjust", json={"message": message, "confirmed": True})
+    assert resp.status_code == 200
+    assert calls[0][0][1].free_minutes == 90
+
+
+def test_adjust_deviation_next_day_uses_next_dates_minutes(client, monkeypatch):
+    plan = client.post("/api/plan", json={**VALID_PAYLOAD, "cook_schedule": SCHEDULE}).get_json()
+    today = plan["today"]
+    assert len(today["items"]) >= 2
+    message = f"I skipped the {today['items'][0]['name']} today and instead had the {today['items'][1]['name']}"
+
+    calls = _spy(monkeypatch, "run_optimizer")
+    client.post("/api/plan/adjust", json={"message": message})
+    resp = client.post("/api/plan/adjust", json={"message": message, "confirmed": True})
+    assert resp.status_code == 200
+    next_on = date.fromisoformat(today["date"]) + timedelta(days=1)
+    assert calls[-1][1]["time_budget_minutes"] == SCHEDULE[next_on.weekday()]
+
+
+def test_onboarding_and_dashboard_ship_schedule_ui(client):
+    onboarding = client.get("/").data
+    assert b'id="cook_weekend_different"' in onboarding
+    assert b'id="cook_time_weekend"' in onboarding
+    dashboard = client.get("/dashboard").data
+    assert b'id="cook-schedule-editor"' in dashboard
+    assert b"/js/cook-schedule.js" in dashboard

@@ -20,6 +20,12 @@ Caveat: the personas are defined on the model's own labels, so this tests
 whether the deck *asks the right questions* under the model's view of food,
 not whether the labels are right. It justifies the design; it isn't proof.
 
+The catalog comes from ``load_market_items`` (grocery.db, priced live by
+Kroger), so this needs a populated grocery.db and Kroger credentials; with
+neither it has nothing to rank. The numbers in the commit that added this
+(concept P@20 0.61 vs product 0.42) were run on the earlier 1,361-item
+kroger_items.json catalog.
+
 A persona swipes yes when utility + noise clears ``--like-threshold``: a
 neutral food needs a reason to get a yes, as in a real survey.
 

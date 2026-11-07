@@ -16,6 +16,7 @@ const ICONS = {
   link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1M14 10a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
   mark: '<svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle class="mark-plate" cx="16" cy="16" r="15"/><path class="mark-wedge" d="M16 16V4.5a11.5 11.5 0 0 1 9.96 17.25Z"/><circle class="mark-hole" cx="16" cy="16" r="4"/></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" stroke-linejoin="round"/></svg>',
   empty: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18" stroke-linecap="round"/></svg>',
 };
 
@@ -24,6 +25,7 @@ const NAV_ITEMS = [
   { key: "menu", href: "/menu", label: "Menu", icon: "menu" },
   { key: "cost", href: "/cost", label: "Cost", icon: "cost" },
   { key: "fridge", href: "/fridge", label: "Fridge", icon: "fridge" },
+  { key: "settings", href: "/settings", label: "Settings", icon: "settings" },
 ];
 
 const CHANNEL_COLOR = {
@@ -114,12 +116,31 @@ function toast(message) {
 }
 
 const PLAN_KEY = "macroPlan";
+const PLAN_DAYS = 7;
+const WEEKS_PER_MONTH = 52 / 12;
+
+/** Plans saved before the switch to a weekly budget carry a DAILY `budget`
+ * instead of `weekly_budget`; read those as budget * 7 (never as $X/week)
+ * and rewrite the field so every page only ever sees `weekly_budget`. */
+function normalizePlanBudget(plan) {
+  if (plan && plan.weekly_budget == null && plan.budget != null) {
+    plan.weekly_budget = Number(plan.budget) * PLAN_DAYS;
+    delete plan.budget;
+  }
+  return plan;
+}
+
+/** "≈ $758/month" for a weekly amount. */
+function monthlyHint(weekly) {
+  const monthly = Math.round(Number(weekly) * WEEKS_PER_MONTH);
+  return `≈ $${monthly.toLocaleString("en-US")}/month`;
+}
 
 function loadPlan(redirect = true) {
   const raw = sessionStorage.getItem(PLAN_KEY);
   if (raw) {
     try {
-      return JSON.parse(raw);
+      return normalizePlanBudget(JSON.parse(raw));
     } catch (e) {
       /* fall through to the empty-sessionStorage handling below */
     }
@@ -148,13 +169,16 @@ function savePlan(plan) {
   sessionStorage.setItem(PLAN_KEY, JSON.stringify(plan));
 }
 
-/** Rebuild the {sex, age, ...} + budget/cook_time/filters payload the plan endpoints expect,
+/** Rebuild the {sex, age, ...} + weekly_budget/cook_time/filters payload the plan endpoints expect,
  * from the profile inputs stashed alongside the plan at onboarding time. */
 function planRequestBase(plan) {
   return {
     ...plan.profile_input,
-    budget: plan.budget,
+    weekly_budget: plan.weekly_budget,
     cook_time: plan.cook_time,
+    // Per-day minutes (Mon..Sun). Older saved plans only carry cook_time;
+    // the server expands that to 7 equal days when cook_schedule is absent.
+    ...(Array.isArray(plan.cook_schedule) ? { cook_schedule: plan.cook_schedule } : {}),
     filters: plan.filters || {},
   };
 }
@@ -221,8 +245,8 @@ function recomputeAggregates(plan) {
 }
 
 function renderBudgetMeter(plan) {
-  const weeklyBudget = plan.budget * plan.week.length;
-  const pct = Math.min(100, (plan.week_summary.total_cost / weeklyBudget) * 100);
+  const weeklyBudget = plan.weekly_budget;
+  const pct = weeklyBudget > 0 ? Math.min(100, (plan.week_summary.total_cost / weeklyBudget) * 100) : 0;
   document.getElementById("budget-meter-value").textContent =
     `${formatMoney(plan.week_summary.total_cost)} / ${formatMoney(weeklyBudget)} (${pct.toFixed(0)}%)`;
   document.getElementById("budget-meter-fill").style.width = `${pct}%`;
@@ -262,6 +286,13 @@ function renderChannelBars(plan) {
   if (plan.week_summary.infeasible_days.length > 0) {
     container.appendChild(el("p", "mix-note", `${plan.week_summary.infeasible_days.length} day(s) this week were best-effort (couldn't fully meet goals within budget/time): ${plan.week_summary.infeasible_days.join(", ")}.`));
   }
+}
+
+// What to call a food on screen: the cleaned display name when there is
+// one, else the raw name (recipes, and plans saved before display names).
+// item.name stays the identity key for links, swaps and taste picks.
+function itemLabel(item) {
+  return item.display_name || item.name;
 }
 
 function recipeHref(item) {

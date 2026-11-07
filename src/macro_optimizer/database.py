@@ -1,6 +1,5 @@
 """Loads the curated food database and builds the combined candidate DataFrame."""
 
-import json
 from pathlib import Path
 from typing import Iterable, List, Optional, Union
 
@@ -11,15 +10,14 @@ from .schema import FoodItem
 DATA_DIR = Path(__file__).parent / "data"
 
 
-def _load_json_items(path: Path) -> List[dict]:
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+def load_market_items(location_id: Optional[str] = None, use_promo: Optional[bool] = None) -> List[dict]:
+    """The ready-to-eat grocery catalog: real products from one supermarket,
+    priced and labeled live by Kroger (see market.py). The product list
+    comes from grocery.db, kept current by ``py -m macro_optimizer.refresh``.
+    Empty when Kroger can't be reached; ``market.status()`` says why."""
+    from .market import market_items
 
-
-def load_market_items() -> List[dict]:
-    """The ready-to-eat grocery catalog: real products, prices, and nutrition
-    labels from one supermarket, built by scripts/build_kroger_catalog.py."""
-    return _load_json_items(DATA_DIR / "kroger_items.json")
+    return market_items(location_id=location_id, use_promo=use_promo)
 
 
 def load_food_db(

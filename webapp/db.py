@@ -1,5 +1,6 @@
 """SQLite-backed account store: users, plus one JSON blob per user per kind
-of state (pantry, plan, plan_previous, history, deviations, taste_profile).
+of state (pantry, plan, plan_previous, history, deviations, taste_profile,
+profile_settings).
 
 Mirrors the app's existing persistence pattern (Pantry/PickHistory/
 DeviationLog/plan.json: one opaque JSON blob, loaded whole, rewritten whole
@@ -95,3 +96,15 @@ def set_blob(user_id: int, kind: str, data: Any) -> None:
             """,
             (user_id, kind, json.dumps(data), _now()),
         )
+
+
+def update_password_hash(user_id: int, password_hash: str) -> None:
+    with _connect() as conn:
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (password_hash, user_id))
+
+
+def delete_user(user_id: int) -> None:
+    """Remove the account; its user_blobs rows go with it (ON DELETE CASCADE)."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM user_blobs WHERE user_id = ?", (user_id,))
+        conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
