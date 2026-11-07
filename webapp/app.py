@@ -317,6 +317,83 @@ def save_plan(payload: dict) -> None:
     db.set_blob(g.user["id"], "plan", payload)
 
 
+# --- Profile settings: the user's planning inputs, independent of any plan ---
+#
+# Everything onboarding asks for (body stats, goal, weekly budget, cook
+# schedule, diet filters) lives in its own per-user blob, so it survives
+# "Start over", exists before a plan does, and can be edited from /settings.
+# Before this, those inputs only lived inside the saved plan as
+# ``plan.profile_input`` (+ the plan's weekly_budget/cook_schedule/filters);
+# load_profile_settings() migrates that shape on first read.
+#
+# Invariant: whenever a plan exists, these settings are the inputs it was
+# built from. Every full-week build (/api/plan, reshuffle) re-saves them,
+# PUT /api/settings rebuilds the week, and undo restores the matching set.
+PROFILE_SETTINGS_KIND = "profile_settings"
+SETTINGS_KEYS = PROFILE_INPUT_KEYS + ("weekly_budget", "cook_schedule", "filters")
+FILTER_KEYS = ("vegetarian", "vegan", "halal", "gluten_free", "no_pork")
+
+
+def settings_from_plan(plan: Optional[dict]) -> Optional[dict]:
+    """The settings a saved plan was built from, or None when it predates
+    profile_input (nothing to migrate)."""
+    if not plan:
+        return None
+    profile_input = plan.get("profile_input") or {}
+    if any(profile_input.get(k) is None for k in PROFILE_INPUT_KEYS):
+        return None
+    try:
+        schedule = cook_schedule_from(plan)
+    except ValueError:
+        schedule = [COOK_TIME_MINUTES["medium"]] * 7
+    return {
+        **{k: profile_input[k] for k in PROFILE_INPUT_KEYS},
+        "weekly_budget": weekly_budget_from(plan),
+        "cook_schedule": schedule,
+        "filters": {k: bool(v) for k, v in (plan.get("filters") or {}).items() if k in FILTER_KEYS},
+    }
+
+
+def load_profile_settings() -> Optional[dict]:
+    """The stored settings blob, migrating from the saved plan on first read."""
+    settings = db.get_blob(g.user["id"], PROFILE_SETTINGS_KIND)
+    if settings:
+        return settings
+    migrated = settings_from_plan(load_plan())
+    if migrated is not None:
+        db.set_blob(g.user["id"], PROFILE_SETTINGS_KIND, migrated)
+    return migrated
+
+
+def save_profile_settings(data: dict, weekly_budget: float, cook_schedule: list, filters: dict) -> dict:
+    """Persist the (already validated) inputs of a plan request as settings."""
+    settings = {
+        **{k: data.get(k) for k in PROFILE_INPUT_KEYS},
+        "weekly_budget": round(float(weekly_budget), 2),
+        "cook_schedule": list(cook_schedule),
+        "filters": {k: bool(filters.get(k)) for k in FILTER_KEYS},
+    }
+    db.set_blob(g.user["id"], PROFILE_SETTINGS_KIND, settings)
+    return settings
+
+
+def with_saved_settings(data: dict) -> dict:
+    """A plan request with any missing inputs filled from the stored settings.
+
+    Request values win; null/absent ones fall back to settings (which in
+    turn fall back to the saved plan's profile_input, see
+    load_profile_settings). Legacy request fields still win over the
+    settings they replaced: a daily ``budget`` beats the stored
+    weekly_budget, a lone ``cook_time`` beats the stored cook_schedule.
+    """
+    base = dict(load_profile_settings() or {})
+    if data.get("weekly_budget") is not None or data.get("budget") is not None:
+        base.pop("weekly_budget", None)
+    if data.get("cook_time") is not None and data.get("cook_schedule") is None:
+        base.pop("cook_schedule", None)
+    return {**base, **{k: v for k, v in data.items() if v is not None}}
+
+
 def recompute_week_aggregates(plan: dict) -> None:
     """Mirror of common.js's recomputeAggregates(): rebuild channel_totals/week_summary/today
     in-place after one day's items changed server-side (replace-item only touches one day)."""
@@ -378,7 +455,7 @@ def parse_plan_request(data: dict):
         cook_schedule = cook_schedule_from(data)
         filters = {
             k: bool(v) for k, v in (data.get("filters") or {}).items()
-            if k in ("vegetarian", "vegan", "halal", "gluten_free", "no_pork")
+            if k in FILTER_KEYS
         }
     except (KeyError, TypeError, ValueError) as e:
         raise PlanInputError(f"invalid profile input: {e}") from e
@@ -647,6 +724,163 @@ def swipe_card_payload(name: str, reason: str = "") -> dict:
     }
 
 
+@app.route("/settings")
+@auth.login_required
+def settings_page():
+    return send_from_directory(app.static_folder, "settings.html")
+
+
+def _goals_preview(goals: dict) -> dict:
+    return {k: round(float(goals[k])) for k in ("calories", "protein", "carbs", "fat")}
+
+
+def _taste_summary() -> dict:
+    """The user's own swipes (not the propagated catalog-wide bonus), latest
+    answer per food winning, split into liked / disliked."""
+    latest = {}
+    for answer in get_taste_answers():
+        latest[answer.name] = answer.liked
+    return {
+        "liked": sorted(name for name, liked in latest.items() if liked),
+        "disliked": sorted(name for name, liked in latest.items() if not liked),
+    }
+
+
+@app.route("/api/settings", methods=["GET"])
+@auth.login_required
+def api_settings_get():
+    """Everything /settings renders: the stored (or migrated) profile
+    settings, the macro targets they produce, whether a plan exists to
+    rebuild, the account identity, and the taste profile.
+
+    ``settings`` is null for an account that never finished onboarding; the
+    page then links back to onboarding instead of showing an empty form.
+    """
+    settings = load_profile_settings()
+    goals = None
+    if settings is not None:
+        try:
+            goals = _goals_preview(parse_plan_request(settings)[1])
+        except PlanInputError:
+            goals = None
+    return jsonify({
+        "settings": settings,
+        "goals": goals,
+        "has_plan": load_plan() is not None,
+        "account": {"email": g.user["email"], "username": g.user["username"]},
+        "taste": _taste_summary(),
+    })
+
+
+def _merged_settings_request(data: dict) -> dict:
+    """A settings edit (any subset of SETTINGS_KEYS) layered on the stored settings."""
+    changes = data.get("settings")
+    if not isinstance(changes, dict):
+        raise PlanInputError("settings must be an object")
+    # cook_time is accepted as the legacy spelling of a uniform schedule.
+    unknown = sorted(set(changes) - set(SETTINGS_KEYS) - {"cook_time"})
+    if unknown:
+        raise PlanInputError(f"unknown setting(s): {unknown}")
+    return with_saved_settings(changes)
+
+
+@app.route("/api/settings/preview", methods=["POST"])
+@auth.login_required
+def api_settings_preview():
+    """Macro targets for a draft edit, without saving anything, so the page
+    can show what a new weight/goal/activity would mean before committing."""
+    try:
+        merged = _merged_settings_request(request.get_json(silent=True) or {})
+        goals = parse_plan_request(merged)[1]
+    except PlanInputError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify({"goals": _goals_preview(goals)})
+
+
+@app.route("/api/settings", methods=["PUT"])
+@auth.login_required
+def api_settings_put():
+    """Save a settings edit. If a plan exists, the week is rebuilt from today
+    with the new settings in the same call (single-level undo via
+    /api/plan/undo restores both the old plan and the old settings), so the
+    plan on screen always matches the saved settings. With no plan yet, the
+    settings are just stored for onboarding to pick up."""
+    try:
+        merged = _merged_settings_request(request.get_json(silent=True) or {})
+        _, goals, _, weekly_budget, cook_schedule, filters = parse_plan_request(merged)
+    except PlanInputError as e:
+        return jsonify({"error": str(e)}), 400
+
+    plan = None
+    if load_plan() is not None:
+        plan, error = build_week_plan(merged)
+        if error:
+            return jsonify({"error": error}), 400
+        settings = load_profile_settings()
+    else:
+        settings = save_profile_settings(merged, weekly_budget, cook_schedule, filters)
+    return jsonify({"settings": settings, "goals": _goals_preview(goals), "plan": plan})
+
+
+@app.route("/api/settings/taste", methods=["POST"])
+@auth.login_required
+def api_settings_taste():
+    """Edit the swipe taste profile: ``{"remove": [names]}`` forgets every
+    swipe on those foods, ``{"clear": true}`` forgets all swipes. Retaking
+    the survey goes through the existing POST /api/swipe-survey, which
+    appends new answers (a later answer for the same food wins)."""
+    data = request.get_json(silent=True) or {}
+    # Swipes live in taste_picks (raw answers) plus, for older accounts, the
+    # pre-propagation taste_profile {name: bonus}; edit both.
+    picks = db.get_blob(g.user["id"], "taste_picks", default=[]) or []
+    legacy = db.get_blob(g.user["id"], "taste_profile", default={}) or {}
+    if data.get("clear"):
+        picks, legacy = [], {}
+    else:
+        remove = data.get("remove")
+        if not isinstance(remove, list):
+            return jsonify({"error": "send {remove: [names]} or {clear: true}"}), 400
+        names = {str(n) for n in remove}
+        picks = [p for p in picks if not (isinstance(p, dict) and str(p.get("name")) in names)]
+        legacy = {k: v for k, v in legacy.items() if k not in names}
+    db.set_blob(g.user["id"], "taste_picks", picks)
+    db.set_blob(g.user["id"], "taste_profile", legacy)
+    return jsonify({"taste": _taste_summary()})
+
+
+@app.route("/api/account/password", methods=["POST"])
+@auth.login_required
+def api_account_password():
+    data = request.get_json(silent=True) or {}
+    current = data.get("current_password") or ""
+    new = data.get("new_password") or ""
+    if not auth.verify_password(current, g.user["password_hash"]):
+        return jsonify({"error": "current password is incorrect"}), 403
+    if len(new) < MIN_PASSWORD_LENGTH:
+        return jsonify({"error": f"new password must be at least {MIN_PASSWORD_LENGTH} characters"}), 400
+    db.update_password_hash(g.user["id"], auth.hash_password(new))
+    return jsonify({"ok": True})
+
+
+ACCOUNT_DELETE_CONFIRMATION = "DELETE"
+
+
+@app.route("/api/account", methods=["DELETE"])
+@auth.login_required
+def api_account_delete():
+    """Permanently delete the account and every per-user blob. Needs the
+    current password plus the literal confirmation word, so a stray click
+    or a stolen-but-unlocked session alone can't do it."""
+    data = request.get_json(silent=True) or {}
+    if data.get("confirm") != ACCOUNT_DELETE_CONFIRMATION:
+        return jsonify({"error": f'type {ACCOUNT_DELETE_CONFIRMATION} to confirm'}), 400
+    if not auth.verify_password(data.get("password") or "", g.user["password_hash"]):
+        return jsonify({"error": "password is incorrect"}), 403
+    db.delete_user(g.user["id"])
+    session.clear()
+    return jsonify({"ok": True})
+
+
 @app.route("/api/swipe-cards")
 @auth.login_required
 def api_swipe_cards():
@@ -716,8 +950,20 @@ def api_swipe_survey():
 @app.route("/api/plan", methods=["POST"])
 @auth.login_required
 def api_plan():
-    data = request.get_json(silent=True) or {}
+    data = with_saved_settings(request.get_json(silent=True) or {})
+    payload, error = build_week_plan(data)
+    if error:
+        return jsonify({"error": error}), 400
+    return jsonify(payload)
 
+
+def build_week_plan(data: dict):
+    """Build, save, and return a fresh 7-day plan from a full plan request.
+
+    Returns (payload, None) or (None, error message). Also re-saves the
+    request's inputs as the user's profile settings, keeping settings and
+    plan in step. Shared by POST /api/plan and PUT /api/settings.
+    """
     try:
         profile, goals, macro_goals, weekly_budget, cook_schedule, filters = parse_plan_request(data)
         preference_bonus = data.get("preference_bonus")
@@ -726,7 +972,7 @@ def api_plan():
                 raise ValueError("preference_bonus must be an object")
             preference_bonus = {str(k): float(v) for k, v in preference_bonus.items()}
     except (PlanInputError, ValueError) as e:
-        return jsonify({"error": str(e)}), 400
+        return None, str(e)
 
     # The user's persisted taste profile always applies; anything explicitly
     # passed in this request (e.g. a swipe survey run this onboarding pass)
@@ -757,13 +1003,14 @@ def api_plan():
             preference_bonus=combined_bonus or None, verbose=False,
         )
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return None, str(e)
 
     save_history(history)
     payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
-    return jsonify(payload)
+    save_profile_settings(data, weekly_budget, cook_schedule, filters)
+    return payload, None
 
 
 @app.route("/api/plan", methods=["GET"])
@@ -789,6 +1036,11 @@ def api_plan_undo():
     current = db.get_blob(g.user["id"], "plan")
     db.set_blob(g.user["id"], "plan", previous)
     db.set_blob(g.user["id"], "plan_previous", current)
+    # Keep settings matching the plan now on screen (undoing a settings
+    # rebuild also undoes the settings change).
+    restored = settings_from_plan(previous)
+    if restored is not None:
+        db.set_blob(g.user["id"], PROFILE_SETTINGS_KIND, restored)
     return jsonify(previous)
 
 
@@ -803,7 +1055,7 @@ def api_plan_reshuffle():
     outright wherever a feasible alternative exists, run_optimizer's own
     soft-constraint fallback covers days where it doesn't.
     """
-    data = request.get_json(silent=True) or {}
+    data = with_saved_settings(request.get_json(silent=True) or {})
 
     try:
         profile, goals, macro_goals, weekly_budget, cook_schedule, filters = parse_plan_request(data)
@@ -850,6 +1102,7 @@ def api_plan_reshuffle():
     payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
+    save_profile_settings(data, weekly_budget, cook_schedule, filters)
     return jsonify(payload)
 
 
@@ -863,7 +1116,7 @@ def api_plan_replace_item():
     candidate pool entirely, and the optimizer re-solves just that day to
     fill the gap. One-click, no picking through alternatives.
     """
-    data = request.get_json(silent=True) or {}
+    data = with_saved_settings(request.get_json(silent=True) or {})
 
     try:
         profile, goals, macro_goals, weekly_budget, cook_schedule, filters = parse_plan_request(data)

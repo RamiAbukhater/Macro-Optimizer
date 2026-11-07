@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
+<title>Settings · AutoEat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
+<link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/cook-schedule.css">
+<link rel="stylesheet" href="/css/settings.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
+</head>
+<body>
+<div class="shell">
+  <div class="sidebar" id="sidebar-mount"></div>
+
+  <div class="main settings-main" id="settings-root" style="display:none;">
+    <div class="topbar">
+      <div>
+        <div class="eyebrow">Settings</div>
+        <h1>Your settings</h1>
+        <p>Change what your plan is built from. Saving rebuilds your week from today, and you can undo it.</p>
+      </div>
+    </div>
+
+    <nav class="settings-jump" aria-label="Settings sections">
+      <a href="#body-section">Body &amp; goals</a>
+      <a href="#food-section">Food</a>
+      <a href="#planning-section">Planning</a>
+      <a href="#taste-section">Taste</a>
+      <a href="#account-section">Account</a>
+    </nav>
+
+    <!-- Shown when the account never finished onboarding: nothing to edit yet. -->
+    <div class="card settings-empty" id="no-settings" hidden>
+      <div class="section-title"><h2>Finish setting up first</h2></div>
+      <p>Your body stats, budget and cooking time come from the setup form. Fill it in once and they'll show up here to edit any time.</p>
+      <a class="btn btn-primary" href="/">Go to setup</a>
+    </div>
+
+    <form id="settings-form" novalidate>
+      <div class="error-banner" id="settings-error" role="alert"></div>
+
+      <section class="card" id="body-section">
+        <div class="section-title">
+          <h2>Body &amp; goals</h2>
+          <span class="hint">These set your daily macro targets</span>
+        </div>
+
+        <div class="field-row keep-row">
+          <div class="field">
+            <label for="s-sex">Sex</label>
+            <select id="s-sex" name="sex">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="s-age">Age</label>
+            <input type="number" id="s-age" name="age" min="13" max="100" step="1">
+          </div>
+        </div>
+
+        <div class="field-row keep-row">
+          <div class="field">
+            <label for="s-weight_lbs">Weight (lb)</label>
+            <input type="number" id="s-weight_lbs" name="weight_lbs" min="60" max="500" step="0.1">
+          </div>
+          <div class="field">
+            <label for="s-height_ft">Height (ft)</label>
+            <input type="number" id="s-height_ft" name="height_ft" min="3" max="8" step="1">
+          </div>
+          <div class="field">
+            <label for="s-height_in">Height (in)</label>
+            <input type="number" id="s-height_in" name="height_in" min="0" max="11" step="1">
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="s-activity">Daily activity level</label>
+          <select id="s-activity" name="activity">
+            <option value="sedentary">Sedentary: little or no exercise</option>
+            <option value="light">Lightly active: light exercise 1-3 days/week</option>
+            <option value="moderate">Moderately active: moderate exercise 3-5 days/week</option>
+            <option value="active">Very active: hard exercise 6-7 days/week</option>
+            <option value="very_active">Extremely active: very hard training or physical job</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Goal</label>
+          <div class="goal-cards" id="s-goal-cards" role="radiogroup" aria-label="Goal">
+            <button type="button" class="goal-card" data-value="lose_fat" role="radio"><span class="goal-glyph">↘</span>Lose Fat</button>
+            <button type="button" class="goal-card" data-value="maintain" role="radio"><span class="goal-glyph">→</span>Maintain</button>
+            <button type="button" class="goal-card" data-value="gain_muscle" role="radio"><span class="goal-glyph">↗</span>Gain Muscle</button>
+          </div>
+        </div>
+
+        <div class="targets" aria-live="polite">
+          <div class="targets-label">Daily targets</div>
+          <div class="targets-row" id="targets-row"></div>
+        </div>
+      </section>
+
+      <section class="card" id="food-section">
+        <div class="section-title">
+          <h2>Food</h2>
+          <span class="hint">Anything unchecked can still show up</span>
+        </div>
+        <div class="field">
+          <label>Dietary preferences</label>
+          <div class="chip-set" id="s-filters">
+            <div class="checkbox-row"><input type="checkbox" id="sf-vegetarian" data-filter="vegetarian"><label for="sf-vegetarian">Vegetarian</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="sf-vegan" data-filter="vegan"><label for="sf-vegan">Vegan</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="sf-halal" data-filter="halal"><label for="sf-halal">Halal</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="sf-gluten_free" data-filter="gluten_free"><label for="sf-gluten_free">Gluten-free</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="sf-no_pork" data-filter="no_pork"><label for="sf-no_pork">No pork</label></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Planning: the weekly budget and the per-day cooking schedule.
+           Hooks for the parallel branches: the budget field is the weekly
+           input from the weekly-budget work; the schedule mounts the same
+           editor as the dashboard card (cook-schedule.js). -->
+      <section class="card" id="planning-section">
+        <div class="section-title">
+          <h2>Planning</h2>
+          <span class="hint">Budget and time for the week</span>
+        </div>
+        <div class="field" data-settings-hook="weekly-budget">
+          <label for="s-weekly_budget">Weekly food budget ($)</label>
+          <input type="number" id="s-weekly_budget" name="weekly_budget" min="35" max="1400" step="1">
+          <div class="hint settings-subhint" id="s-weekly_budget_hint"></div>
+        </div>
+        <div class="field" data-settings-hook="cook-schedule">
+          <label>Time to cook each day</label>
+          <div class="hint settings-subhint">Skip means no cooking that day, only ready-to-eat picks.</div>
+          <div id="s-cook-schedule"></div>
+        </div>
+      </section>
+
+      <div class="save-bar" id="save-bar">
+        <div class="save-bar-text" id="save-bar-text" role="status">No unsaved changes</div>
+        <div class="save-bar-actions">
+          <button type="button" class="secondary" id="discard-btn" hidden>Discard</button>
+          <button type="button" class="secondary" id="undo-btn" hidden>Undo</button>
+          <button type="submit" class="primary" id="save-btn" disabled>Save &amp; rebuild week</button>
+        </div>
+      </div>
+    </form>
+
+    <section class="card" id="taste-section">
+      <div class="section-title">
+        <h2>Taste profile</h2>
+        <span class="hint">From your swipes. Liked foods get nudged into plans, disliked ones out</span>
+      </div>
+      <div class="taste-cols">
+        <div>
+          <div class="taste-head">Liked <span class="num" id="liked-count">0</span></div>
+          <div class="taste-chips" id="liked-list"></div>
+        </div>
+        <div>
+          <div class="taste-head">Disliked <span class="num" id="disliked-count">0</span></div>
+          <div class="taste-chips" id="disliked-list"></div>
+        </div>
+      </div>
+      <p class="hint taste-note">Changes here apply the next time your week is built or reshuffled.</p>
+      <div class="actions settings-actions">
+        <button type="button" class="primary" id="retake-btn">Retake swipe survey</button>
+        <button type="button" class="secondary" id="clear-taste-btn">Clear taste profile</button>
+      </div>
+    </section>
+
+    <section class="card" id="account-section">
+      <div class="section-title">
+        <h2>Account</h2>
+      </div>
+      <div class="account-ids">
+        <div><span class="stat-label">Email</span><div id="acct-email"></div></div>
+        <div><span class="stat-label">Username</span><div id="acct-username"></div></div>
+      </div>
+
+      <hr class="divider">
+
+      <form id="password-form" autocomplete="on">
+        <h3>Change password</h3>
+        <input type="text" name="username" id="pw-username" autocomplete="username" hidden>
+        <div class="field-row">
+          <div class="field">
+            <label for="pw-current">Current password</label>
+            <input type="password" id="pw-current" autocomplete="current-password" required>
+          </div>
+          <div class="field">
+            <label for="pw-new">New password</label>
+            <input type="password" id="pw-new" autocomplete="new-password" minlength="8" required>
+          </div>
+        </div>
+        <div class="settings-actions">
+          <button type="submit" class="primary" id="pw-submit">Update password</button>
+          <span class="form-status" id="pw-status" role="status"></span>
+        </div>
+      </form>
+
+      <hr class="divider">
+
+      <div class="danger-zone">
+        <div>
+          <h3>Log out</h3>
+          <p class="hint">Sign out on this device.</p>
+        </div>
+        <button type="button" class="secondary" id="logout-btn">Log out</button>
+      </div>
+
+      <div class="danger-zone">
+        <div>
+          <h3>Delete account</h3>
+          <p class="hint">Permanently removes your account, plans, fridge, history and taste profile. This can't be undone.</p>
+        </div>
+        <button type="button" class="btn btn-danger" id="delete-open-btn">Delete account</button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="modal-backdrop" id="delete-modal" role="dialog" aria-modal="true" aria-labelledby="delete-title">
+  <form class="modal" id="delete-form">
+    <h3 id="delete-title">Delete your account?</h3>
+    <p>Everything goes: your plan, fridge, history and taste profile. You can't get it back.</p>
+    <div class="field">
+      <label for="del-password">Password</label>
+      <input type="password" id="del-password" autocomplete="current-password" required>
+    </div>
+    <div class="field">
+      <label for="del-confirm">Type DELETE to confirm</label>
+      <input type="text" id="del-confirm" autocomplete="off" spellcheck="false" required>
+    </div>
+    <div class="form-status" id="del-status" role="status"></div>
+    <div class="modal-actions">
+      <button type="button" class="secondary" id="delete-cancel">Cancel</button>
+      <button type="submit" class="btn btn-danger" id="delete-submit" disabled>Delete forever</button>
+    </div>
+  </form>
+</div>
+
+<!-- Retake survey: hosts the existing swipe-survey.js (same element ids as
+     onboarding), loaded on demand so the cards are only fetched when asked.
+     Hook for the swipe survey rebuild: keep these ids, or swap this block
+     for the rebuilt survey's mount. -->
+<div class="modal-backdrop" id="survey-modal" role="dialog" aria-modal="true" aria-labelledby="survey-title">
+  <div class="modal survey-modal">
+    <h3 id="survey-title">Quick taste check</h3>
+    <p class="hint">New swipes are added to your profile. A food you swipe again takes the new answer.</p>
+    <div id="swipe-card">
+      <div class="swipe-progress" id="swipe-progress"></div>
+      <div class="swipe-stack" id="swipe-stack">
+        <div class="swipe-loading" id="swipe-loading">Loading foods…</div>
+      </div>
+      <div class="swipe-actions" id="swipe-actions" style="display: none;">
+        <button type="button" class="swipe-btn swipe-btn-dislike" id="swipe-dislike" aria-label="Dislike">✕</button>
+        <button type="button" class="swipe-btn swipe-btn-like" id="swipe-like" aria-label="Like">♥</button>
+      </div>
+      <div class="swipe-done" id="swipe-done" style="display: none;">Saved to your taste profile.</div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="skip-link" id="swipe-skip" hidden>Skip</button>
+      <button type="button" class="primary" id="survey-done-btn">Done</button>
+    </div>
+  </div>
+</div>
+
+<div class="loading-overlay" id="loading"><span class="spinner"></span><span id="loading-text">Loading your settings…</span></div>
+
+<script src="/js/pwa.js"></script>
+<script src="/js/common.js"></script>
+<script src="/js/cook-schedule.js"></script>
+<script src="/js/settings.js"></script>
+</body>
+</html>

@@ -110,3 +110,30 @@ form.addEventListener("submit", async (e) => {
     submitBtn.textContent = "Build my plan";
   }
 });
+
+// Prefill from saved profile settings (e.g. after "Start over"), so redoing
+// setup starts from what the user already told us rather than defaults.
+getJSON("/api/settings")
+  .then(({ settings }) => {
+    if (!settings) return;
+    ["sex", "age", "height_ft", "height_in", "weight_lbs", "activity", "weekly_budget"].forEach((k) => {
+      const input = document.getElementById(k);
+      if (input && settings[k] != null) input.value = settings[k];
+    });
+    goalCards.forEach((c) => c.classList.toggle("selected", c.dataset.value === settings.goal));
+    if (settings.goal) selectedGoal = settings.goal;
+    Object.entries(settings.filters || {}).forEach(([k, on]) => {
+      const box = document.getElementById(`f-${k}`);
+      if (box) box.checked = Boolean(on);
+    });
+    const labelFor = (m) => Object.keys(COOK_MINUTES).find((k) => COOK_MINUTES[k] === m);
+    const s = settings.cook_schedule || [];
+    if (labelFor(s[0])) document.getElementById("cook_time").value = labelFor(s[0]);
+    if (s.length === 7 && s[5] !== s[0] && labelFor(s[5])) {
+      weekendToggle.checked = true;
+      weekendToggle.dispatchEvent(new Event("change"));
+      document.getElementById("cook_time_weekend").value = labelFor(s[5]);
+    }
+    updateWeeklyBudgetHint();
+  })
+  .catch(() => { /* no settings yet: keep the defaults */ });
