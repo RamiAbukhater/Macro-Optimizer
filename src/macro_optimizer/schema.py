@@ -20,7 +20,7 @@ FIELDS = [
     "calories", "protein", "carbs", "fat", "fiber", "sodium",
     "allergens", "vegetarian", "vegan", "gluten_free", "halal", "contains_pork",
     "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url", "kind", "image_url",
-    "display_name",
+    "display_name", "upc", "servings_per_package", "package_price", "package_size",
 ]
 
 REQUIRED_FIELDS = [
@@ -88,6 +88,16 @@ class FoodItem:
     # browser loads it from Kroger directly. "" means no photo; the swipe
     # card then draws a styled placeholder instead.
     image_url: str = ""
+    # What one purchase of this item actually is, for a store product:
+    # the UPC, how many of the servings above one package holds, its shelf
+    # price and its size as printed ("20 oz"). ``price`` is per serving, so
+    # the shopping list needs these to round a week's servings up to whole
+    # packages. Filled live from Kroger (kroger.to_food_item) and never
+    # persisted. Empty/0 for recipes and anything not bought as a package.
+    upc: str = ""
+    servings_per_package: float = 0.0
+    package_price: float = 0.0
+    package_size: str = ""
 
     def __post_init__(self):
         if self.price < 0:

@@ -31,6 +31,7 @@ from .database import load_food_db
 from .history import PickHistory
 from .menu_planner import DayPlan
 from .optimizer import run_optimizer_with_rotation_backoff
+from .week_stock import WeekStock
 
 
 def plan_week_multichannel(
@@ -47,6 +48,7 @@ def plan_week_multichannel(
     tag_rotation_cap: Optional[int] = None,
     item_tags: Optional[Dict[str, str]] = None,
     preference_bonus: Optional[dict] = None,
+    stock: Optional[WeekStock] = None,
     verbose: bool = False,
 ) -> List[dict]:
     """Plan one meal combination per day, choosing freely across every channel viable that day.
@@ -55,6 +57,11 @@ def plan_week_multichannel(
     summary}, in the same shape menu_planner.plan_week() returns plus the
     two new fields, so downstream code (history, confirmation_digest) can
     treat both the same way.
+
+    ``stock``, when given, carries the fridge across the week (see
+    week_stock.py): owned food is credited as ~free each day, and each day's
+    purchases leave whole-package leftovers for the days after. Each
+    plan_df then has a ``from_stock`` column.
     """
     today = today or date.today()
     history = history if history is not None else PickHistory()
@@ -83,14 +90,25 @@ def plan_week_multichannel(
         goals = day.goals or default_goals
         budget_cap = day.budget_cap if day.budget_cap is not None else default_budget_cap
 
+        day_bonus, stock_credit = preference_bonus, None
+        if stock is not None:
+            stock_credit, recipe_bonus = stock.prepare_day(day.on, candidates)
+            if recipe_bonus:
+                day_bonus = dict(preference_bonus or {})
+                for name, extra in recipe_bonus.items():
+                    day_bonus[name] = day_bonus.get(name, 0.0) + extra
+
         plan_df, summary = run_optimizer_with_rotation_backoff(
             rotation_cap, recency_window_days,
             food_df=food_df, goals=goals, budget_cap=budget_cap, filters=filters,
             history=history, recency_penalty_weight=recency_penalty_weight,
             tag_rotation_cap=tag_rotation_cap, item_tags=item_tags,
-            as_of=day.on, time_budget_minutes=day.free_minutes, preference_bonus=preference_bonus,
-            pinned_items=day.pinned_items, verbose=verbose,
+            as_of=day.on, time_budget_minutes=day.free_minutes, preference_bonus=day_bonus,
+            pinned_items=day.pinned_items, stock_credit=stock_credit,
+            package_fee=stock.package_fee if stock is not None else 0.0, verbose=verbose,
         )
+        if stock is not None:
+            plan_df = stock.record_day(day.on, plan_df, candidates)
         history.record_plan(plan_df, on=day.on)
 
         results.append({

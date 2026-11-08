@@ -603,6 +603,10 @@ def to_food_item(
         kind=kind,
         display_name=display_name_for(record["description"], record["brand"], record["upc"]),
         image_url=product_image_url(product),
+        upc=record["upc"],
+        servings_per_package=round(servings, 2),
+        package_price=round(package_price, 2),
+        package_size=record["size"],
         **_dietary_flags(product, nutrition["ingredients"]),
     )
 

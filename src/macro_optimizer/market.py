@@ -146,6 +146,72 @@ def market_items(location_id: Optional[str] = None, use_promo: Optional[bool] = 
     return items
 
 
+def _package_quantity(record: dict, unit: str, each_grams: Optional[float]) -> Optional[float]:
+    """How much of an ingredient (in its own unit) one package holds, or None
+    when it can't be said: no parseable size, a unit mismatch, or produce
+    sold by weight (you can buy any amount of that)."""
+    if record["quantity"] is None or record.get("sold_by", "").upper() == "WEIGHT":
+        return None
+    if record["unit"] == unit:
+        return record["quantity"]
+    if unit == "each" and record["unit"] == "g" and each_grams:
+        return round(record["quantity"] / each_grams, 2)
+    return None
+
+
+def ingredient_packages(ingredient_db: dict, location_id: Optional[str] = None,
+                        use_promo: Optional[bool] = None) -> Dict[str, dict]:
+    """The package a pinned recipe ingredient is bought in, live from Kroger.
+
+    ``{ingredient: {"upc", "title", "size", "package_quantity", "package_price"}}``,
+    package_quantity in the ingredient's own unit (see ingredients.json).
+    Held in memory only, like everything else here. Ingredients with no pin,
+    no price today, or no reconcilable package size are left out, and the
+    shopping list keeps them as loose per-quantity estimates.
+    """
+    if not grocery_db.exists():
+        return {}
+    use_promo = use_sale_prices_default() if use_promo is None else use_promo
+    conn = grocery_db.connect()
+    try:
+        store = _store(conn, location_id)
+        pins = grocery_db.pins(conn)
+    finally:
+        conn.close()
+    pins = {k: v for k, v in pins.items() if k in ingredient_db}
+    if store is None or not pins:
+        return {}
+    live = fetch_products([p["upc"] for p in pins.values()], store["location_id"])
+    out = {}
+    for key, pin in pins.items():
+        product = live.get(pin["upc"])
+        record = to_price_record(product, store["location_id"], use_promo=use_promo) if product else None
+        if record is None:
+            continue
+        quantity = _package_quantity(record, ingredient_db[key]["unit"], pin.get("each_grams"))
+        if not quantity:
+            continue
+        out[key] = {
+            "upc": record["upc"],
+            "title": record["description"],
+            "size": record["size"],
+            "package_quantity": quantity,
+            "package_price": round(record["price"], 2),
+        }
+    return out
+
+
+def products_by_upc(location_id: Optional[str] = None) -> Dict[str, dict]:
+    """The live grocery catalog keyed by UPC (and by raw title), for the
+    shopping list's package facts and the fridge's product names."""
+    out = {}
+    for item in market_items(location_id=location_id):
+        if item.get("upc"):
+            out[item["upc"]] = item
+        out[item["name"]] = item
+    return out
+
+
 def ingredient_prices(ingredient_db: dict, location_id: Optional[str] = None,
                       use_promo: Optional[bool] = None) -> Dict[str, dict]:
     """Live prices for pinned recipe ingredients: ``{ingredient: {"price_per_unit", "price_source"}}``.

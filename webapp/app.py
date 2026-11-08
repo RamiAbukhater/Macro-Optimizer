@@ -12,6 +12,7 @@ turning the results into JSON the frontend can render.
 import os
 import re
 import sqlite3
+import uuid
 from datetime import date, timedelta
 from typing import Optional
 
@@ -50,6 +51,10 @@ from macro_optimizer.nlu import classify_intent, extract_item_match, extract_tag
 from macro_optimizer.adjustments import exclude_and_resolve, resolve_tag_to_item_names
 from macro_optimizer.deviation import MACRO_KEYS, DeviationLog, carry_forward_goals, recompute_day_macros
 from macro_optimizer.tags import build_item_tags
+from macro_optimizer import market
+from macro_optimizer.shelf_life import shelf_life_days, use_by as shelf_use_by
+from macro_optimizer.shopping_list import HOME_COOKING_SOURCE, product_stock_key, purchase_quantity
+from macro_optimizer.week_stock import WeekStock
 from macro_optimizer.taste import (
     Answer,
     TasteModel,
@@ -292,8 +297,19 @@ def get_taste_profile() -> dict:
     return taste_model().propagate(answers, SWIPE_BONUS_AMOUNT)
 
 
-def build_channels():
-    return [CookAtHomeAdapter(pantry=get_pantry()), PreparedMealAdapter(), RestaurantOrderAdapter()]
+def build_channels(pantry: Optional[Pantry] = None):
+    pantry = pantry if pantry is not None else get_pantry()
+    return [CookAtHomeAdapter(pantry=pantry), PreparedMealAdapter(), RestaurantOrderAdapter()]
+
+
+def week_stock_and_channels():
+    """A simulated copy of the fridge for planning a week (see week_stock.py),
+    and channels whose recipes price against that copy as the week uses it up.
+    Settles past plan days first, so the copy reflects what's really left."""
+    settle_consumption()
+    stock = WeekStock(get_pantry(), recipes=load_recipes(),
+                      ingredient_packages=market.ingredient_packages(load_ingredient_db()))
+    return stock, build_channels(pantry=stock.pantry)
 
 
 def build_catalog_item_tags(channels) -> dict:
@@ -354,6 +370,11 @@ def load_plan() -> Optional[dict]:
 
 def save_plan(payload: dict) -> None:
     """Persist the latest full week plan, keeping one prior snapshot for /api/plan/undo."""
+    # Purchases are stored per plan (see plan_week_key): a fresh plan gets a
+    # fresh id, even when rebuilt the same day, so what the previous plan's
+    # shopping put in the fridge counts as owned stock for this one.
+    if "plan_id" not in payload and payload.get("week"):
+        payload["plan_id"] = f"{payload['week'][0]['date']}-{uuid.uuid4().hex[:8]}"
     existing = db.get_blob(g.user["id"], "plan")
     if existing is not None:
         db.set_blob(g.user["id"], "plan_previous", existing)
@@ -521,6 +542,8 @@ def serialize_day(r: dict) -> dict:
                 "source": row["source"],
                 "channel": channel,
                 "servings": int(row["servings"]),
+                "upc": row.get("upc") or "",
+                "from_stock": round(float(row.get("from_stock", 0) or 0), 2),
                 "price": round(float(row["price"]), 2),
                 "total_cost": round(float(row["total_cost"]), 2),
                 "calories": round(float(row["total_cal"]), 1),
@@ -1095,12 +1118,12 @@ def build_week_plan(data: dict):
         # if the strict cap would otherwise sacrifice that day's macro goals,
         # so this never trades nutrition for variety, only asks for as much
         # variety as the database and budget can actually support.
-        channels = build_channels()
+        stock, channels = week_stock_and_channels()
         results = plan_week_multichannel(
             days, channels, macro_goals, daily_budget_cap(weekly_budget, len(days)), today=today,
             filters=filters or None, history=history, rotation_cap=1, recency_penalty_weight=5.0,
             tag_rotation_cap=TAG_ROTATION_CAP, item_tags=build_catalog_item_tags(channels),
-            preference_bonus=combined_bonus or None, verbose=False,
+            preference_bonus=combined_bonus or None, stock=stock, verbose=False,
         )
     except ValueError as e:
         return None, str(e)
@@ -1109,6 +1132,7 @@ def build_week_plan(data: dict):
     payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
+    mark_plan_start(payload)
     save_profile_settings(data, weekly_budget, cook_schedule, filters)
     return payload, None
 
@@ -1183,12 +1207,12 @@ def api_plan_reshuffle():
             continue
 
     try:
-        channels = build_channels()
+        stock, channels = week_stock_and_channels()
         results = plan_week_multichannel(
             days, channels, macro_goals, daily_budget_cap(weekly_budget, len(days)), today=today,
             filters=filters or None, history=history, rotation_cap=1, recency_penalty_weight=5.0,
             tag_rotation_cap=TAG_ROTATION_CAP, item_tags=build_catalog_item_tags(channels),
-            preference_bonus=get_taste_profile() or None, verbose=False,
+            preference_bonus=get_taste_profile() or None, stock=stock, verbose=False,
         )
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
@@ -1202,6 +1226,7 @@ def api_plan_reshuffle():
     payload = serialize_week(results, profile, goals, macro_goals, weekly_budget, cook_schedule, filters)
     payload["profile_input"] = {k: data.get(k) for k in PROFILE_INPUT_KEYS}
     save_plan(payload)
+    mark_plan_start(payload)
     save_profile_settings(data, weekly_budget, cook_schedule, filters)
     return jsonify(payload)
 
@@ -1372,6 +1397,15 @@ def _parse_adjust_directive(message: str, plan: dict) -> dict:
         tags = load_food_tags()
         food_df, _viable = _food_df_for_day(day_json["days_out"])
         tag = extract_tag(message, tags)
+        # An item named outright on this day's plan wins over a category word
+        # inside its name: "I didn't like the Nonfat Plain Greek Yogurt" means
+        # that yogurt, not every dairy item.
+        lowered = message.lower()
+        named = next((i["name"] for i in day_json["items"]
+                      if (i.get("display_name") or i["name"]).lower() in lowered or i["name"].lower() in lowered),
+                     None)
+        if named is not None:
+            tag = None
         if tag is not None:
             matched_names = resolve_tag_to_item_names(food_df, tag)
             return {
@@ -1770,8 +1804,203 @@ def api_recipe(name):
 def api_shopping_list():
     data = request.get_json(silent=True) or {}
     items = data.get("items") or []
-    result = build_shopping_list(items, pantry=get_pantry())
+    result = build_shopping_list(
+        items, pantry=get_pantry(), products=market.products_by_upc(),
+        ingredient_packages=market.ingredient_packages(load_ingredient_db()),
+    )
     return jsonify(result)
+
+
+# --- Shopping -> fridge -> planning -----------------------------------------
+#
+# The saved plan's week is shopped as whole packages (shopping_list.py).
+# Checking a line off records the purchase for that plan week in the
+# "purchases" blob and adds the full package contents to the fridge as a lot
+# with id "buy:<week>:<line key>", so re-checking is a no-op and unchecking
+# removes exactly that lot. Only our own data is stored: UPC / ingredient,
+# package count, quantity, dates. Prices and titles are looked up live.
+#
+# A day passing means its plan was eaten: settle_consumption() takes every
+# past, not yet settled plan day out of the fridge. The deviation flow
+# already rewrites a day's saved items to what was actually eaten, so
+# settling the saved plan accounts for logged deviations.
+
+PURCHASES_KIND = "purchases"
+FRIDGE_STATE_KIND = "fridge_state"
+
+
+def today() -> date:
+    """Today's date, one seam tests can move to make days pass."""
+    return date.today()
+
+
+def plan_week_key(plan: Optional[dict]) -> Optional[str]:
+    """Which plan week purchases belong to: the plan's id (its start date
+    plus a suffix), or just the start date for plans saved before ids."""
+    if not plan or not plan.get("week"):
+        return None
+    return plan.get("plan_id") or plan["week"][0]["date"]
+
+
+def purchase_lot_prefix(week: str) -> str:
+    return f"buy:{week}:"
+
+
+def _consume_plan_item(pantry: Pantry, item: dict, recipes_by_name: dict) -> None:
+    servings = float(item.get("servings") or 0)
+    if item.get("upc"):
+        pantry.consume(product_stock_key(item["upc"]), servings)
+        return
+    recipe = recipes_by_name.get(item.get("name"))
+    if recipe is not None and item.get("source") == HOME_COOKING_SOURCE:
+        scale = servings / recipe["servings"]
+        for line in recipe["ingredients"]:
+            pantry.consume(line["ingredient"], line["quantity"] * scale)
+
+
+def settle_consumption(as_of: Optional[date] = None) -> int:
+    """Count every past, unsettled plan day as eaten. Returns days settled.
+
+    The first call for a user only records yesterday as settled, so plans
+    from before this existed don't suddenly drain the fridge.
+    """
+    as_of = as_of or today()
+    yesterday = (as_of - timedelta(days=1)).isoformat()
+    state = db.get_blob(g.user["id"], FRIDGE_STATE_KIND, default=None)
+    if not state or not state.get("consumed_through"):
+        db.set_blob(g.user["id"], FRIDGE_STATE_KIND, {"consumed_through": yesterday})
+        return 0
+    through = state["consumed_through"]
+    if through >= yesterday:
+        return 0
+    plan = load_plan()
+    days = [d for d in (plan or {}).get("week", []) if through < d["date"] <= yesterday]
+    if days:
+        pantry = get_pantry()
+        recipes_by_name = {r["name"]: r for r in load_recipes()}
+        for day in days:
+            for item in day["items"]:
+                _consume_plan_item(pantry, item, recipes_by_name)
+        save_pantry(pantry)
+    db.set_blob(g.user["id"], FRIDGE_STATE_KIND, {"consumed_through": yesterday})
+    return len(days)
+
+
+def mark_plan_start(plan: dict) -> None:
+    """A new plan's days start today; settling continues from the day before it."""
+    start = (date.fromisoformat(plan["week"][0]["date"]) - timedelta(days=1)).isoformat()
+    state = db.get_blob(g.user["id"], FRIDGE_STATE_KIND, default=None) or {}
+    if not state.get("consumed_through") or state["consumed_through"] < start:
+        db.set_blob(g.user["id"], FRIDGE_STATE_KIND, {"consumed_through": start})
+
+
+def get_purchases(week: str) -> dict:
+    return (db.get_blob(g.user["id"], PURCHASES_KIND, default={}) or {}).get(week, {})
+
+
+def save_purchases(week: str, week_purchases: dict) -> None:
+    every_week = db.get_blob(g.user["id"], PURCHASES_KIND, default={}) or {}
+    every_week[week] = week_purchases
+    db.set_blob(g.user["id"], PURCHASES_KIND, every_week)
+
+
+def week_shopping_list(plan: dict, products: Optional[dict] = None) -> dict:
+    """The saved plan's whole week as a whole-package shopping list."""
+    week = plan_week_key(plan)
+    items = [i for d in plan["week"] for i in d["items"]]
+    result = build_shopping_list(
+        items, pantry=get_pantry(),
+        products=products if products is not None else market.products_by_upc(),
+        ingredient_packages=market.ingredient_packages(load_ingredient_db()),
+        exclude_lot_prefix=purchase_lot_prefix(week), bought=get_purchases(week),
+    )
+    result["week_start"] = plan["week"][0]["date"]
+    result["plan_id"] = week
+    return result
+
+
+def _stock_key_for(line: dict) -> str:
+    if line.get("ingredient"):
+        return line["ingredient"]
+    if line.get("upc"):
+        return product_stock_key(line["upc"])
+    return f"item:{line['name']}"
+
+
+def _shelf_days_for(line: dict, products: dict) -> int:
+    if line.get("ingredient"):
+        return shelf_life_days(ingredient=line["ingredient"])
+    live = products.get(line.get("upc") or "") or products.get(line.get("name")) or {}
+    return shelf_life_days(kind=live.get("kind", ""), category=live.get("category", ""), name=line.get("name", ""))
+
+
+def set_line_bought(plan: dict, line: dict, bought: bool, products: dict) -> bool:
+    """Check (or uncheck) one shopping line. Idempotent both ways; returns
+    whether anything changed."""
+    week = plan_week_key(plan)
+    purchases = get_purchases(week)
+    key = line["key"]
+    lot_id = purchase_lot_prefix(week) + key
+    pantry = get_pantry()
+    if bought:
+        if key in purchases:
+            return False
+        qty = purchase_quantity(line)
+        if not qty:
+            return False
+        on = today()
+        stock_key = _stock_key_for(line)
+        pantry.add_lot(stock_key, lot_id, qty, purchased_on=on.isoformat(),
+                       use_by=shelf_use_by(on, _shelf_days_for(line, products)),
+                       unit=None if line.get("ingredient") else "servings")
+        purchases[key] = {
+            "stock_key": stock_key, "upc": line.get("upc") or None, "ingredient": line.get("ingredient"),
+            "packages": line.get("packages"), "quantity_added": qty, "bought_on": on.isoformat(),
+        }
+    else:
+        if key not in purchases:
+            return False
+        pantry.remove_lot(purchases[key].get("stock_key") or _stock_key_for(line), lot_id)
+        del purchases[key]
+    save_pantry(pantry)
+    save_purchases(week, purchases)
+    return True
+
+
+@app.route("/api/shopping-list", methods=["GET"])
+@auth.login_required
+def api_shopping_list_get():
+    """The saved plan's week as whole packages, with each line's bought state."""
+    settle_consumption()
+    plan = load_plan()
+    if plan is None:
+        return jsonify({"error": "no plan saved yet"}), 404
+    return jsonify(week_shopping_list(plan))
+
+
+@app.route("/api/shopping-list/bought", methods=["POST"])
+@auth.login_required
+def api_shopping_list_bought():
+    """``{key, bought}``, or ``{all: true, bought}`` for every line: check lines
+    off, adding their full package contents to the fridge, or uncheck to undo."""
+    data = request.get_json(silent=True) or {}
+    plan = load_plan()
+    if plan is None:
+        return jsonify({"error": "no plan saved yet"}), 404
+    bought = bool(data.get("bought", True))
+    products = market.products_by_upc()
+    result = week_shopping_list(plan, products)
+    lines = result["ingredients"] + result["packaged_items"]
+    if data.get("all"):
+        targets = lines
+    else:
+        targets = [l for l in lines if l["key"] == data.get("key")]
+        if not targets:
+            return jsonify({"error": f"no shopping line {data.get('key')!r}"}), 400
+    changed = sum(set_line_bought(plan, line, bought, products) for line in targets)
+    out = week_shopping_list(plan, products)
+    out["changed"] = changed
+    return jsonify(out)
 
 
 @app.route("/api/shopping-list/instacart", methods=["POST"])
@@ -1917,26 +2146,42 @@ def api_ingredients_search():
 @app.route("/api/pantry", methods=["GET"])
 @auth.login_required
 def api_pantry_list():
+    settle_consumption()
     pantry = get_pantry()
     ingredient_db = load_ingredient_db()
-    today = date.today()
+    on = today()
+    products = None
 
     items = []
     for name, entry in pantry.list_items().items():
+        if entry.quantity <= 1e-9:
+            continue  # used up
         ing = ingredient_db.get(name, {})
         days_left = None
         if entry.expires_on:
-            days_left = (date.fromisoformat(entry.expires_on) - today).days
+            days_left = (date.fromisoformat(entry.expires_on) - on).days
+        is_product = name.startswith("upc:")
+        display = entry.display_name or name.replace("_", " ")
+        if is_product:
+            # Store products are named live from Kroger, never from a stored label.
+            if products is None:
+                products = market.products_by_upc()
+            live = products.get(name[len("upc:"):]) or {}
+            display = live.get("display_name") or live.get("name") or f"Store product {name[len('upc:'):]}"
+        purchased = [l["purchased_on"] for l in entry.lots if l.get("purchased_on")]
         items.append({
             "ingredient": name,
-            "display_name": entry.display_name or name.replace("_", " "),
-            "quantity": entry.quantity,
-            "unit": ing.get("unit") or entry.unit or "",
+            "display_name": display,
+            "quantity": round(entry.quantity, 2),
+            "unit": "servings" if is_product else (ing.get("unit") or entry.unit or ""),
             "expires_on": entry.expires_on,
             "days_until_expiry": days_left,
+            "kind": "product" if is_product else "ingredient",
+            "purchased_on": max(purchased) if purchased else None,
+            "from_shopping": any(str(l["id"]).startswith("buy:") for l in entry.lots),
             # True for anything added via /api/ingredients/search rather than
             # picked from the curated ingredients.json dropdown.
-            "custom": ing == {},
+            "custom": ing == {} and not is_product,
             "custom_source": entry.source,
         })
 
@@ -1947,7 +2192,9 @@ def api_pantry_list():
 
     items.sort(key=sort_key)
 
-    return jsonify({"items": items, "expiring_soon": pantry.expiring_within(5, as_of=today)})
+    expiring = [i["display_name"] for i in items
+                if i["days_until_expiry"] is not None and 0 <= i["days_until_expiry"] <= 5]
+    return jsonify({"items": items, "expiring_soon": expiring})
 
 
 @app.route("/api/pantry", methods=["POST"])
@@ -1960,6 +2207,8 @@ def api_pantry_upsert():
 
     ingredient_db = load_ingredient_db()
     known = ingredient_db.get(ingredient)
+    if ingredient.startswith("upc:"):
+        data = {**data, "unit": "servings", "display_name": None, "source": None}
     # Anything not in the curated database (e.g. a result from
     # /api/ingredients/search) can still be tracked, as long as the caller
     # supplies a unit, there's just nothing to look one up from.

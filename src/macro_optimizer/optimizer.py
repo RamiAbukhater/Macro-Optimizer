@@ -32,6 +32,13 @@ PENALTY_PER_GRAM = 50  # penalty weight for unmet macro in soft-constraint fallb
 KIND_DAILY_CAP = 2
 
 
+# Owned items skip the hard rotation cap, but keep this fraction of their
+# recency penalty: leftovers come back every other day or so instead of
+# every day, so finishing a package doesn't flatten the week's variety.
+# The expiry urgency in stock_credit outweighs it as a use-by nears.
+OWNED_RECENCY_FACTOR = 0.2
+
+
 def _add_kind_caps(prob, food_df, x, idx, pinned_items):
     if "kind" not in food_df.columns:
         return
@@ -40,6 +47,48 @@ def _add_kind_caps(prob, food_df, x, idx, pinned_items):
             continue
         pinned_here = int(group["name"].isin(pinned_items).sum())
         prob += pulp.lpSum(x[i] for i in group.index) <= max(KIND_DAILY_CAP, pinned_here)
+
+
+def _stock_terms(prob, food_df, x, idx, stock_credit, package_fee=0.0):
+    """Owned stock and whole packages (see week_stock.py's weekly carry-over).
+
+    ``stock_credit`` is {name: {"servings": owned, "urgency": $/serving}}.
+    For each owned item a continuous y_i <= min(x_i, owned) is credited back
+    at the item's price plus its urgency (higher when it expires soon), so
+    owned servings cost ~$0 and soon-to-spoil ones slightly less than that.
+
+    ``package_fee`` (a fraction of the package price) makes opening a new
+    package cost something: for an item with a known package, whatever
+    isn't covered by owned stock needs whole packages p_i (integer), and
+    each one adds package_fee * package_price to the objective. Without it
+    every day happily opens a fresh bag of a different brand of bagels.
+
+    Returns (objective credit, budget credit): the objective credit is
+    subtracted from the objective (fees enter it negatively), and owned
+    servings don't spend any of today's budget.
+    """
+    has_packages = package_fee > 0 and "servings_per_package" in food_df.columns
+    if not stock_credit and not has_packages:
+        return 0, 0
+    stock_credit = stock_credit or {}
+    objective, budget = [], []
+    for i in idx:
+        price = float(food_df.loc[i, "price"])
+        info = stock_credit.get(food_df.loc[i, "name"])
+        y = None
+        if info and info.get("servings", 0) > 0:
+            y = pulp.LpVariable(f"owned_{i}", lowBound=0, upBound=float(info["servings"]))
+            prob += y <= x[i]
+            objective.append((price + float(info.get("urgency", 0.0))) * y)
+            budget.append(price * y)
+        if has_packages:
+            spp = float(food_df.loc[i, "servings_per_package"] or 0)
+            package_price = float(food_df.loc[i, "package_price"] or 0)
+            if spp > 0 and package_price > 0:
+                p = pulp.LpVariable(f"packages_{i}", lowBound=0, cat="Integer")
+                prob += x[i] - (y if y is not None else 0) <= spp * p
+                objective.append(-package_fee * package_price * p)
+    return pulp.lpSum(objective), pulp.lpSum(budget)
 
 
 def run_optimizer(
@@ -57,6 +106,8 @@ def run_optimizer(
     time_budget_minutes: Optional[float] = None,
     preference_bonus: Optional[dict] = None,
     pinned_items: Optional[list] = None,
+    stock_credit: Optional[Dict[str, dict]] = None,
+    package_fee: float = 0.0,
     verbose: bool = True,
 ) -> Tuple[pd.DataFrame, dict]:
     """Run the ILP optimizer. Returns (plan_df, summary_dict).
@@ -98,12 +149,23 @@ def run_optimizer(
     optimum. ``pinned_items`` is the hard version, at least one serving of
     each named item is forced into the plan (per IDEAS.md's "manually
     preferred recipes").
+
+    ``stock_credit`` is what's already in the fridge, {name: {"servings",
+    "urgency"}} (see _stock_terms): owned servings cost ~$0 and spend no
+    budget, and owned items are exempt from the rotation cap (finishing a bag
+    of bagels across the week is the point, not a repetition to avoid) with
+    only OWNED_RECENCY_FACTOR of their recency penalty. The per-kind daily
+    cap still applies. ``package_fee`` charges a fraction of the package
+    price for every new package an item needs (see _stock_terms), so a
+    week sticks to the packages it has already opened.
     """
+    stock_credit = {k: v for k, v in (stock_credit or {}).items() if v.get("servings", 0) > 0}
+    owned = set(stock_credit)
     if filters:
         food_df = apply_dietary_filters(food_df, filters)
 
     if history is not None and rotation_cap is not None:
-        excluded = set(history.rotation_cap_exclusions(recency_window_days, rotation_cap, as_of=as_of))
+        excluded = set(history.rotation_cap_exclusions(recency_window_days, rotation_cap, as_of=as_of)) - owned
         if excluded:
             food_df = food_df[~food_df["name"].isin(excluded)].copy()
 
@@ -112,7 +174,9 @@ def run_optimizer(
             history.tag_rotation_cap_exclusions(item_tags, recency_window_days, tag_rotation_cap, as_of=as_of)
         )
         if excluded_tags:
-            food_df = food_df[~food_df["name"].map(item_tags).isin(excluded_tags)].copy()
+            food_df = food_df[
+                ~food_df["name"].map(item_tags).isin(excluded_tags) | food_df["name"].isin(owned)
+            ].copy()
 
     if food_df.empty:
         raise ValueError("No food items remain after applying dietary filters and rotation cap.")
@@ -127,6 +191,7 @@ def run_optimizer(
         if history is not None
         else {}
     )
+    penalties = {k: v * OWNED_RECENCY_FACTOR if k in owned else v for k, v in penalties.items()}
     bonuses = preference_bonus or {}
 
     idx = list(food_df.index)
@@ -146,13 +211,15 @@ def run_optimizer(
         name = food_df.loc[i, "name"]
         return food_df.loc[i, "price"] + penalties.get(name, 0.0) - bonuses.get(name, 0.0)
 
-    prob += pulp.lpSum(effective_cost(i) * x[i] for i in idx), "Total_Cost_With_Variety_Penalty"
+    stock_objective, stock_budget = _stock_terms(prob, food_df, x, idx, stock_credit, package_fee)
+    prob += (pulp.lpSum(effective_cost(i) * x[i] for i in idx) - stock_objective,
+             "Total_Cost_With_Variety_Penalty")
 
     prob += (pulp.lpSum(food_df.loc[i, "calories"] * x[i] for i in idx) >= goals["calories"], "min_calories")
     prob += (pulp.lpSum(food_df.loc[i, "protein"] * x[i] for i in idx) >= goals["protein"], "min_protein")
     prob += (pulp.lpSum(food_df.loc[i, "carbs"] * x[i] for i in idx) >= goals["carbs"], "min_carbs")
     prob += (pulp.lpSum(food_df.loc[i, "fat"] * x[i] for i in idx) >= goals["fat"], "min_fat")
-    prob += (pulp.lpSum(food_df.loc[i, "price"] * x[i] for i in idx) <= budget_cap, "budget_cap")
+    prob += (pulp.lpSum(food_df.loc[i, "price"] * x[i] for i in idx) - stock_budget <= budget_cap, "budget_cap")
     if time_budget_minutes is not None:
         prob += (
             pulp.lpSum(food_df.loc[i, "total_time_minutes"] * x[i] for i in idx) <= time_budget_minutes,
@@ -169,7 +236,8 @@ def run_optimizer(
             print(f"Hard-constraint problem: {pulp.LpStatus[prob.status]}.")
             print("Running soft-constraint fallback (goals become targets, not hard limits)...")
         return _soft_fallback(
-            food_df, goals, budget_cap, penalties, bonuses, pinned_items, time_budget_minutes, verbose=verbose
+            food_df, goals, budget_cap, penalties, bonuses, pinned_items, time_budget_minutes, verbose=verbose,
+            stock_credit=stock_credit, package_fee=package_fee,
         )
 
     plan_df = _extract_plan(food_df, x, idx)
@@ -249,7 +317,8 @@ def run_optimizer_with_rotation_backoff(rotation_cap: Optional[int], recency_win
         cap = cap + 1 if cap < recency_window_days else None
 
 
-def _soft_fallback(food_df, goals, budget_cap, penalties, bonuses, pinned_items, time_budget_minutes, verbose):
+def _soft_fallback(food_df, goals, budget_cap, penalties, bonuses, pinned_items, time_budget_minutes, verbose,
+                   stock_credit=None, package_fee=0.0):
     idx = list(food_df.index)
     prob = pulp.LpProblem("Macro_Soft_Optimizer", pulp.LpMinimize)
     x = {
@@ -271,8 +340,9 @@ def _soft_fallback(food_df, goals, budget_cap, penalties, bonuses, pinned_items,
         return food_df.loc[i, "price"] + penalties.get(name, 0.0) - bonuses.get(name, 0.0)
 
     P = PENALTY_PER_GRAM
+    stock_objective, stock_budget = _stock_terms(prob, food_df, x, idx, stock_credit, package_fee)
     prob += (
-        pulp.lpSum(effective_cost(i) * x[i] for i in idx)
+        pulp.lpSum(effective_cost(i) * x[i] for i in idx) - stock_objective
         + P * s_cal + P * s_prot + P * s_carb + P * s_fat
     )
 
@@ -280,7 +350,7 @@ def _soft_fallback(food_df, goals, budget_cap, penalties, bonuses, pinned_items,
     prob += pulp.lpSum(food_df.loc[i, "protein"] * x[i] for i in idx) + s_prot >= goals["protein"]
     prob += pulp.lpSum(food_df.loc[i, "carbs"] * x[i] for i in idx) + s_carb >= goals["carbs"]
     prob += pulp.lpSum(food_df.loc[i, "fat"] * x[i] for i in idx) + s_fat >= goals["fat"]
-    prob += pulp.lpSum(food_df.loc[i, "price"] * x[i] for i in idx) <= budget_cap
+    prob += pulp.lpSum(food_df.loc[i, "price"] * x[i] for i in idx) - stock_budget <= budget_cap
     if time_budget_minutes is not None:
         prob += pulp.lpSum(food_df.loc[i, "total_time_minutes"] * x[i] for i in idx) <= time_budget_minutes
     _add_kind_caps(prob, food_df, x, idx, pinned_items)

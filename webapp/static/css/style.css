@@ -1429,3 +1429,11 @@ table.data-table tr.expired td:first-child { box-shadow: inset 4px 0 0 var(--tom
 }
 
 #ingredient-select { text-transform: capitalize; }
+
+/* Shopping list: bought checkboxes and whole-package lines. */
+.shopping-table .check-col { width: 34px; padding-right: 0; }
+.shopping-table input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--herb); cursor: pointer; }
+.shopping-table .line-title { cursor: pointer; }
+.shopping-table .line-sub { font-weight: 400; font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+.shopping-table tr.is-bought .line-title { text-decoration: line-through; color: var(--ink-3); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

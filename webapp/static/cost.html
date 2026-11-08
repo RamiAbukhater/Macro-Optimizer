@@ -47,12 +47,14 @@
     <div class="card">
       <div class="section-title">
         <h2>Shopping list</h2>
-        <span class="hint">Recipe ingredients and market items, minus what's in your fridge</span>
+        <span class="hint">Whole packages, minus what's in your fridge. Check items off as you buy them.</span>
       </div>
       <div class="actions" style="margin-bottom:22px;">
+        <button class="btn btn-primary" id="mark-all-btn">Mark all bought</button>
         <button class="btn btn-secondary" id="export-human-btn"><span class="export-icon"></span>Plain text (.txt)</button>
         <button class="btn btn-secondary" id="export-instacart-btn"><span class="export-icon"></span>Instacart format (.json)</button>
       </div>
+      <p class="hint" id="bought-progress" style="margin:-8px 0 14px;"></p>
       <div id="shopping-list-body"></div>
     </div>
   </div>

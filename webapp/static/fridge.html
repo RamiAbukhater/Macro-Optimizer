@@ -23,7 +23,7 @@
       <div>
         <div class="eyebrow">Fridge</div>
         <h1>Your inventory</h1>
-        <p>What's already on hand comes off recipe costs and the shopping list.</p>
+        <p>What you check off on the shopping list lands here, and counts down as each planned day passes. Your next plan uses it up first, soonest use-by first.</p>
       </div>
     </div>
 
@@ -36,7 +36,7 @@
       <form id="pantry-form">
         <div class="field-row">
           <div class="field" style="flex: 2;">
-            <label for="ingredient-select">Ingredient</label>
+            <label for="ingredient-select">Item</label>
             <select id="ingredient-select" required></select>
           </div>
           <div class="field">
@@ -44,7 +44,7 @@
             <input type="number" id="quantity-input" min="0" step="any" required>
           </div>
           <div class="field">
-            <label for="expiry-input">Expires <span style="color:var(--text-muted);">(optional)</span></label>
+            <label for="expiry-input">Use by <span style="color:var(--text-muted);">(optional)</span></label>
             <input type="date" id="expiry-input">
           </div>
         </div>
