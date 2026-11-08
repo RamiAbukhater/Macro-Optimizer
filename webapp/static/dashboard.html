@@ -2,10 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#2a6df5">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
 <title>Overview · AutoEat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/cook-schedule.css">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/icon.svg">
@@ -22,47 +27,64 @@
       </div>
     </div>
 
-    <div class="card">
-      <div class="section-title">
-        <h2>Tell AutoEat about a change</h2>
-        <span class="hint">e.g. "I'm sick of chicken on Thursday" or "I had a burger for lunch today instead"</span>
-      </div>
+    <div class="composer">
+      <div class="composer-label">Tell AutoEat about a change</div>
       <form class="adjust-row" id="adjust-form">
-        <input type="text" id="adjust-input" placeholder="Tell AutoEat about a change…" autocomplete="off">
+        <input type="text" id="adjust-input" placeholder="Something come up?" aria-label="Tell AutoEat about a change" autocomplete="off">
         <button type="submit" class="primary" id="adjust-submit">Send</button>
       </form>
+      <div class="adjust-examples" id="adjust-examples">
+        <button type="button" class="adjust-example">I'm sick of chicken on Thursday</button>
+        <button type="button" class="adjust-example">I had a burger for lunch today instead</button>
+      </div>
       <div id="adjust-response"></div>
     </div>
 
     <div class="stat-row" id="stat-row"></div>
 
-    <div class="card">
-      <div class="section-title">
-        <h2>Today's suggested meals</h2>
-        <span class="hint" id="today-date"></span>
+    <div class="split">
+      <div class="ticket-wrap">
+        <div class="ticket">
+          <div class="ticket-head">
+            <h2>Today's order</h2>
+            <span class="hint" id="today-date"></span>
+          </div>
+          <ul class="plan-list" id="today-list"></ul>
+        </div>
       </div>
-      <ul class="plan-list" id="today-list"></ul>
+
+      <div class="nf">
+        <div class="nf-title">Macro Facts</div>
+        <div class="nf-sub">Today's plan against your daily targets</div>
+        <div class="nf-bar"></div>
+        <div class="nf-note">% of target</div>
+        <div id="macro-meters"></div>
+      </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="cook-schedule-card">
       <div class="section-title">
-        <h2>Meal analysis</h2>
-        <span class="hint">Today's macros vs. your targets</span>
+        <h2>Cooking schedule</h2>
+        <span class="hint">Minutes you can spend cooking each day. Skip means no cooking, only ready-to-eat picks.</span>
       </div>
-      <div id="macro-meters"></div>
+      <div id="cook-schedule-editor"></div>
+      <div class="cook-schedule-actions">
+        <button type="button" class="primary" id="cook-schedule-save" disabled>Save &amp; rebuild week</button>
+        <span id="cook-schedule-status" role="status"></span>
+      </div>
     </div>
 
     <div class="card">
       <div class="section-title">
         <h2>Budget &amp; channel mix</h2>
-        <span class="hint">Across the full week — see <a href="/cost" style="color: var(--accent);">Cost Analysis</a> for the full breakdown</span>
+        <span class="hint">Full week &middot; <a href="/cost">see cost analysis</a></span>
       </div>
       <div class="meter-row">
         <div class="meter-label">
-          <span class="name">Weekly budget utilization</span>
+          <span class="name">Weekly budget used</span>
           <span class="value" id="budget-meter-value"></span>
         </div>
-        <div class="meter-track"><div class="meter-fill" id="budget-meter-fill" style="background: var(--series-1);"></div></div>
+        <div class="meter-track"><div class="meter-fill" id="budget-meter-fill" style="background: var(--ink);"></div></div>
       </div>
       <div id="channel-bars"></div>
     </div>
@@ -73,6 +95,7 @@
 
 <script src="/js/pwa.js"></script>
 <script src="/js/common.js"></script>
+<script src="/js/cook-schedule.js"></script>
 <script src="/js/dashboard.js"></script>
 <script src="/js/adjust.js"></script>
 </body>

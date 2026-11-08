@@ -30,6 +30,26 @@ class PantryEntry:
     unit: Optional[str] = None
     display_name: Optional[str] = None
     source: Optional[str] = None
+    # Purchase batches making up ``quantity``: [{id, quantity, purchased_on,
+    # use_by}]. A shopping-list check-off upserts the lot "buy:<week>:<line>",
+    # so re-checking never adds stock twice and unchecking removes exactly
+    # that purchase. Entries saved before lots existed get one "manual" lot.
+    lots: List[dict] = field(default_factory=list)
+
+    def __post_init__(self):
+        if not self.lots and self.quantity > 0:
+            self.lots = [{"id": "manual", "quantity": self.quantity, "purchased_on": None,
+                          "use_by": self.expires_on}]
+        self._sync()
+
+    def _sync(self) -> None:
+        self.lots = [l for l in self.lots if l["quantity"] > 1e-9]
+        self.quantity = round(sum(l["quantity"] for l in self.lots), 4)
+        dates = [l["use_by"] for l in self.lots if l.get("use_by")]
+        if dates:
+            self.expires_on = min(dates)
+        elif self.lots:
+            self.expires_on = None
 
 
 class Pantry:
@@ -58,12 +78,42 @@ class Pantry:
             raise ValueError("quantity cannot be negative")
         existing = self._items.get(ingredient)
         if existing:
-            existing.quantity += quantity
+            existing.lots.append({"id": f"manual-{len(existing.lots)}", "quantity": quantity,
+                                  "purchased_on": None, "use_by": expires_on})
+            existing._sync()
             if expires_on:
                 existing.expires_on = expires_on
         else:
             self._items[ingredient] = PantryEntry(quantity=quantity, expires_on=expires_on)
         self._save()
+
+    def add_lot(self, key: str, lot_id: str, quantity: float, purchased_on: Optional[str] = None,
+                use_by: Optional[str] = None, unit: Optional[str] = None) -> None:
+        """Upsert one purchase batch by id. Idempotent: the same id twice leaves one lot."""
+        if quantity < 0:
+            raise ValueError("quantity cannot be negative")
+        entry = self._items.get(key)
+        if entry is None:
+            entry = self._items[key] = PantryEntry(quantity=0.0, unit=unit)
+        entry.lots = [l for l in entry.lots if l["id"] != lot_id]
+        entry.lots.append({"id": lot_id, "quantity": quantity, "purchased_on": purchased_on, "use_by": use_by})
+        entry._sync()
+        self._save()
+
+    def remove_lot(self, key: str, lot_id: str) -> None:
+        """Drop one purchase batch (whatever of it is left). No-op if it isn't there."""
+        entry = self._items.get(key)
+        if entry is None:
+            return
+        entry.lots = [l for l in entry.lots if l["id"] != lot_id]
+        entry._sync()
+        if not entry.lots:
+            del self._items[key]
+        self._save()
+
+    def lots(self, key: str) -> List[dict]:
+        entry = self._items.get(key)
+        return [dict(l) for l in entry.lots] if entry else []
 
     def set_quantity(
         self,
@@ -101,13 +151,20 @@ class Pantry:
     def list_items(self) -> Dict[str, PantryEntry]:
         """Every tracked ingredient, name to its entry. Empty dict if nothing is tracked."""
         return {
-            name: PantryEntry(entry.quantity, entry.expires_on, entry.unit, entry.display_name, entry.source)
+            name: PantryEntry(entry.quantity, entry.expires_on, entry.unit, entry.display_name, entry.source,
+                              [dict(l) for l in entry.lots])
             for name, entry in self._items.items()
         }
 
-    def have(self, ingredient: str) -> float:
+    def have(self, ingredient: str, exclude_prefix: Optional[str] = None) -> float:
+        """Owned quantity; ``exclude_prefix`` leaves out lots whose id starts with it
+        (the shopping list ignores this week's own purchases when netting stock)."""
         entry = self._items.get(ingredient)
-        return entry.quantity if entry else 0.0
+        if not entry:
+            return 0.0
+        if exclude_prefix is None:
+            return entry.quantity
+        return sum(l["quantity"] for l in entry.lots if not str(l["id"]).startswith(exclude_prefix))
 
     def offset(self, ingredient: str, needed_qty: float) -> float:
         """How much of ``needed_qty`` still has to be bought, after using what's owned."""
@@ -118,7 +175,15 @@ class Pantry:
         entry = self._items.get(ingredient)
         if not entry:
             return
-        entry.quantity = max(0.0, entry.quantity - quantity)
+        # Soonest use-by first, so what spoils first is what gets eaten first.
+        remaining = quantity
+        for lot in sorted(entry.lots, key=lambda l: (l.get("use_by") is None, l.get("use_by") or "")):
+            take = min(lot["quantity"], remaining)
+            lot["quantity"] -= take
+            remaining -= take
+            if remaining <= 1e-9:
+                break
+        entry._sync()
         self._save()
 
     def expiring_within(self, days: int, as_of: Optional[date] = None) -> List[str]:
@@ -146,6 +211,7 @@ class Pantry:
             name: {
                 "quantity": e.quantity, "expires_on": e.expires_on,
                 "unit": e.unit, "display_name": e.display_name, "source": e.source,
+                "lots": [dict(l) for l in e.lots],
             }
             for name, e in self._items.items()
         }

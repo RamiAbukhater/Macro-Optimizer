@@ -158,3 +158,46 @@ def test_custom_ingredient_metadata_round_trips_through_persistence(tmp_path):
     assert entry.unit == "g"
     assert entry.display_name == "Salmon Fillet"
     assert entry.source == "Open Food Facts"
+
+
+# --- purchase lots ---
+
+def test_add_lot_is_idempotent_by_id():
+    pantry = Pantry()
+    pantry.add_lot("upc:1", "buy:w:product:1", 6, purchased_on="2026-11-08", use_by="2026-11-14")
+    pantry.add_lot("upc:1", "buy:w:product:1", 6, purchased_on="2026-11-08", use_by="2026-11-14")
+    assert pantry.have("upc:1") == 6
+
+
+def test_remove_lot_undoes_only_that_purchase():
+    pantry = Pantry()
+    pantry.add_lot("upc:1", "a", 6)
+    pantry.add_lot("upc:1", "b", 2)
+    pantry.remove_lot("upc:1", "a")
+    assert pantry.have("upc:1") == 2
+    pantry.remove_lot("upc:1", "b")
+    assert "upc:1" not in pantry.list_items()
+
+
+def test_consume_eats_soonest_expiring_lot_first():
+    pantry = Pantry()
+    pantry.add_lot("milk", "late", 1000, use_by="2026-11-20")
+    pantry.add_lot("milk", "soon", 500, use_by="2026-11-10")
+    pantry.consume("milk", 600)
+    lots = {l["id"]: l["quantity"] for l in pantry.lots("milk")}
+    assert lots == {"late": 900}
+    assert pantry.list_items()["milk"].expires_on == "2026-11-20"
+
+
+def test_legacy_entry_without_lots_round_trips():
+    pantry = Pantry(entries={"rice": {"quantity": 500, "expires_on": "2026-12-01"}})
+    assert pantry.have("rice") == 500
+    again = Pantry(entries=pantry.to_dict())
+    assert again.have("rice") == 500 and again.list_items()["rice"].expires_on == "2026-12-01"
+
+
+def test_have_can_exclude_lots_by_prefix():
+    pantry = Pantry()
+    pantry.add_lot("upc:1", "old", 2)
+    pantry.add_lot("upc:1", "buy:2026-11-08:x", 6)
+    assert pantry.have("upc:1", exclude_prefix="buy:2026-11-08:") == 2

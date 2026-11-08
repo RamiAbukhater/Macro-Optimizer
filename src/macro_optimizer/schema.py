@@ -19,7 +19,8 @@ FIELDS = [
     "price", "serving_unit",
     "calories", "protein", "carbs", "fat", "fiber", "sodium",
     "allergens", "vegetarian", "vegan", "gluten_free", "halal", "contains_pork",
-    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url",
+    "max_daily", "notes", "prep_minutes", "cook_minutes", "source_url", "kind", "image_url",
+    "display_name", "upc", "servings_per_package", "package_price", "package_size",
 ]
 
 REQUIRED_FIELDS = [
@@ -69,6 +70,34 @@ class FoodItem:
     # have no real URL to attach yet, this field exists so one can be filled
     # in per-row without a schema change once a real source is available.
     source_url: str = ""
+    # What sort of food this is, at the level a person means by "I already
+    # had peanut butter today", for catalogs big enough to carry the same
+    # thing under many brands and sizes. The optimizer caps a day's servings
+    # per kind (see optimizer.KIND_DAILY_CAP). "" means no grouping, which is
+    # right for recipes and one-of-a-kind items.
+    kind: str = ""
+    # What to show a person, when ``name`` is a raw product title full of
+    # brand and package noise ("Kroger® Hawaiian Bagels" -> "Hawaiian
+    # Bagels"). Filled at catalog-build time by display_names.py. ``name``
+    # stays the raw, unique title because it's the identity key for taste
+    # profiles, pins and history; "" means show ``name`` as is.
+    display_name: str = ""
+    # A product photo URL straight from the source (Kroger's CDN for
+    # catalog rows). Only the URL is stored, never the image bytes: Kroger's
+    # API terms forbid keeping permanent copies of API content, so the
+    # browser loads it from Kroger directly. "" means no photo; the swipe
+    # card then draws a styled placeholder instead.
+    image_url: str = ""
+    # What one purchase of this item actually is, for a store product:
+    # the UPC, how many of the servings above one package holds, its shelf
+    # price and its size as printed ("20 oz"). ``price`` is per serving, so
+    # the shopping list needs these to round a week's servings up to whole
+    # packages. Filled live from Kroger (kroger.to_food_item) and never
+    # persisted. Empty/0 for recipes and anything not bought as a package.
+    upc: str = ""
+    servings_per_package: float = 0.0
+    package_price: float = 0.0
+    package_size: str = ""
 
     def __post_init__(self):
         if self.price < 0:

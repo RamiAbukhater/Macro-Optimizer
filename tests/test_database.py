@@ -5,10 +5,13 @@ from macro_optimizer.database import apply_dietary_filters, load_food_db
 from macro_optimizer.schema import FoodItem
 
 
-def test_load_food_db_combines_market_and_dining():
+def test_load_food_db_serves_the_real_grocery_catalog():
     df = load_food_db()
-    assert len(df) > 0
-    assert set(df["source"].unique()) >= {"Market", "Dining Hall"}
+    assert len(df) > 100
+    assert set(df["source"].unique()) == {"Kroger API"}
+    assert (df["confidence"] == "external_api").all()
+    # Every row traces back to a specific product and the day it was priced.
+    assert df["notes"].str.contains(r"UPC \d+").all()
 
 
 def test_load_food_db_derived_columns():

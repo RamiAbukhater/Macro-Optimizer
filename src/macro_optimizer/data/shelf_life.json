@@ -1,0 +1,55 @@
+{
+  "_comment": "Rough days a purchase stays good, edit freely. Lookup order: by_kind (store product kind), by_ingredient (ingredients.json id), keywords (substring of the name or kind), by_category, then default.",
+  "default": 30,
+  "by_kind": {
+    "bagels": 6,
+    "whole wheat bread": 7,
+    "tortillas": 14,
+    "milk": 7,
+    "kefir": 10,
+    "greek yogurt cup": 14,
+    "cottage cheese": 7,
+    "string cheese": 21,
+    "hard boiled eggs": 7,
+    "hummus": 7,
+    "tofu": 7,
+    "deli turkey": 5,
+    "deli chicken": 5,
+    "deli sandwich": 3,
+    "salad kit": 4,
+    "baby carrots": 14,
+    "orange juice": 7
+  },
+  "by_ingredient": {
+    "chicken_breast_raw": 2,
+    "ground_beef_90": 2,
+    "egg": 21,
+    "broccoli_fresh": 5,
+    "spinach_fresh": 5,
+    "banana": 5,
+    "onion": 30,
+    "greek_yogurt_plain_bulk": 14,
+    "cheddar_cheese": 28
+  },
+  "keywords": {
+    "bread": 6,
+    "bagel": 6,
+    "milk": 7,
+    "yogurt": 14,
+    "salad": 4,
+    "deli": 5
+  },
+  "by_category": {
+    "Bakery": 6,
+    "Produce": 5,
+    "Dairy": 10,
+    "Deli": 5,
+    "Meat & Seafood": 2,
+    "Natural & Organic": 10,
+    "Beverages": 30,
+    "Frozen": 90,
+    "Breakfast": 180,
+    "Snacks": 120,
+    "Pantry": 365
+  }
+}

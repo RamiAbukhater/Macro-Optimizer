@@ -218,6 +218,6 @@ def test_to_food_item_feeds_directly_into_load_food_db():
     from macro_optimizer.database import load_food_db
 
     item = to_food_item(NUTELLA_LIKE_PRODUCT, price=3.50)
-    df = load_food_db(extra_items=[item], include_market=False, include_dining=False)
+    df = load_food_db(extra_items=[item], include_market=False)
     assert len(df) == 1
     assert df.iloc[0]["source"] == "Open Food Facts"

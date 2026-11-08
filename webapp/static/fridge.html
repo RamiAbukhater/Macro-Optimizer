@@ -2,9 +2,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
 <title>Fridge · AutoEat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
 </head>
 <body>
 <div class="shell">
@@ -15,7 +23,7 @@
       <div>
         <div class="eyebrow">Fridge</div>
         <h1>Your inventory</h1>
-        <p style="margin:0;">What's already on hand gets applied as a discount against recipe cost &amp; the shopping list.</p>
+        <p>What you check off on the shopping list lands here, and counts down as each planned day passes. Your next plan uses it up first, soonest use-by first.</p>
       </div>
     </div>
 
@@ -28,15 +36,15 @@
       <form id="pantry-form">
         <div class="field-row">
           <div class="field" style="flex: 2;">
-            <label for="ingredient-select">Ingredient</label>
+            <label for="ingredient-select">Item</label>
             <select id="ingredient-select" required></select>
           </div>
           <div class="field">
-            <label for="quantity-input">Quantity <span id="unit-label" style="font-weight:400;color:var(--text-muted);"></span></label>
+            <label for="quantity-input">Quantity <span id="unit-label" style="color:var(--text-muted);"></span></label>
             <input type="number" id="quantity-input" min="0" step="any" required>
           </div>
           <div class="field">
-            <label for="expiry-input">Expires on <span style="font-weight:400;color:var(--text-muted);">(optional)</span></label>
+            <label for="expiry-input">Use by <span style="color:var(--text-muted);">(optional)</span></label>
             <input type="date" id="expiry-input">
           </div>
         </div>
@@ -45,17 +53,18 @@
     </div>
 
     <div class="card card-flush">
-      <div style="padding: 22px 22px 16px;">
-        <div class="section-title" style="margin-bottom:0;">
+      <div style="padding: 24px 24px 0;">
+        <div class="section-title" style="border-bottom:none;padding-bottom:0;">
           <h2>Currently tracked</h2>
           <span class="hint" id="item-count-hint"></span>
         </div>
       </div>
-      <div id="pantry-table-wrap"></div>
+      <div id="pantry-table-wrap" class="table-wrap"></div>
     </div>
   </div>
 </div>
 
+<script src="/js/pwa.js"></script>
 <script src="/js/common.js"></script>
 <script src="/js/fridge.js"></script>
 </body>

@@ -2,38 +2,53 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
 <title>Sign up — AutoEat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/icon.svg">
 </head>
 <body>
-<div class="page-narrow-wrap">
-<div class="page-narrow">
-  <div class="eyebrow">AutoEat</div>
-  <h1>Create your account</h1>
-  <p>Your plan, pantry, pick history, and taste profile all live here, scoped to you.</p>
+<div class="gate">
+  <aside class="gate-poster">
+    <div class="gate-brand"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle class="mark-plate" cx="16" cy="16" r="15"/><path class="mark-wedge" d="M16 16V4.5a11.5 11.5 0 0 1 9.96 17.25Z"/><circle class="mark-hole" cx="16" cy="16" r="4"/></svg>AutoEat</div>
+    <div class="gate-slip ticket" aria-hidden="true"><b>MON</b>cook at home<i></i><i></i><i></i><i></i>order no. 001</div>
+    <p class="gate-tagline">Hit your macros. <em>Keep</em> your budget.</p>
+    <div class="gate-foot"><b>Cook</b> &middot; <b>deliver</b> &middot; <b>order</b><br>one plan across all three</div>
+  </aside>
 
-  <div class="error-banner" id="error-banner"></div>
+  <main class="gate-form gate-narrow">
+    <div class="eyebrow">New here</div>
+    <h1>Create your account</h1>
+    <p>Your plan, pantry, pick history, and taste profile all live here, scoped to you.</p>
 
-  <form class="card" id="signup-form">
-    <div class="field">
-      <label for="email">Email</label>
-      <input type="email" id="email" autocomplete="email" required>
-    </div>
-    <div class="field">
-      <label for="username">Username</label>
-      <input type="text" id="username" autocomplete="username" required>
-    </div>
-    <div class="field">
-      <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="new-password" minlength="8" required>
-      <div class="help-text">At least 8 characters.</div>
-    </div>
-    <button type="submit" class="primary" id="submit-btn">Sign up</button>
-  </form>
+    <div class="error-banner" id="error-banner"></div>
 
-  <p class="help-text">Already have an account? <a href="/login">Log in</a>.</p>
-</div>
+    <form class="card" id="signup-form">
+      <div class="field">
+        <label for="email">Email</label>
+        <input type="email" id="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="new-password" minlength="8" required>
+        <div class="help-text">At least 8 characters.</div>
+      </div>
+      <button type="submit" class="primary" id="submit-btn">Sign up</button>
+    </form>
+
+    <p class="help-text">Already have an account? <a href="/login">Log in</a>.</p>
+  </main>
 </div>
 
 <script src="/js/common.js"></script>

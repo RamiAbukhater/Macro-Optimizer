@@ -7,6 +7,14 @@
       "runtimeArgs": ["webapp/app.py"],
       "port": 5000,
       "autoPort": true
+    },
+    {
+      "name": "webapp-src",
+      "runtimeExecutable": "py",
+      "runtimeArgs": ["webapp/app.py"],
+      "env": { "PYTHONPATH": "src" },
+      "port": 5000,
+      "autoPort": true
     }
   ]
 }

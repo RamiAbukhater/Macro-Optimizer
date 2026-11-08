@@ -3,7 +3,9 @@ let pantryItems = [];
 
 function ingredientUnit(key) {
   const ing = ingredientDb.find((i) => i.key === key);
-  return ing ? ing.unit : "";
+  if (ing) return ing.unit;
+  const tracked = pantryItems.find((i) => i.ingredient === key);
+  return tracked ? tracked.unit : "";
 }
 
 async function loadIngredients() {
@@ -18,9 +20,15 @@ async function loadIngredients() {
 
 function daysLabel(days) {
   if (days === null || days === undefined) return "";
-  if (days < 0) return `Expired ${Math.abs(days)}d ago`;
-  if (days === 0) return "Expires today";
-  return `${days}d left`;
+  if (days < 0) return `Past use-by ${Math.abs(days)}d`;
+  if (days === 0) return "Use today";
+  if (days === 1) return "Use by tomorrow";
+  return `Use within ${days}d`;
+}
+
+function qtyLabel(item) {
+  const n = Number(item.quantity).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  return item.unit === "servings" ? `${n} serving${item.quantity === 1 ? "" : "s"}` : `${n} ${item.unit}`;
 }
 
 function rowClass(days) {
@@ -35,14 +43,7 @@ function renderExpiringBanner(pantryData) {
   banner.innerHTML = "";
   if (!pantryData.expiring_soon.length) return;
   const names = pantryData.expiring_soon.map((n) => n.replace(/_/g, " ")).join(", ");
-  const card = el("div", "card");
-  card.style.background = "var(--warning-soft)";
-  card.style.borderColor = "color-mix(in srgb, var(--warning) 45%, transparent)";
-  card.style.display = "flex";
-  card.style.gap = "10px";
-  card.style.alignItems = "center";
-  card.innerHTML = `<strong style="color:var(--warning);">Expiring soon:</strong> <span style="color:var(--text-primary);">${names}</span>`;
-  banner.appendChild(card);
+  banner.appendChild(el("div", "callout", `<strong>Use soon</strong><span>${names}. Your next plan works these in first.</span>`));
 }
 
 function renderTable() {
@@ -51,21 +52,22 @@ function renderTable() {
 
   if (pantryItems.length === 0) {
     wrap.innerHTML = "";
-    wrap.appendChild(el("div", "empty-state", `${ICONS.empty}<div>Nothing tracked yet. Add what's in your fridge above to start saving on recipe cost.</div>`));
-    wrap.style.padding = "0 22px 22px";
+    wrap.appendChild(el("div", "empty-state", `${ICONS.empty}<div>Nothing tracked yet. Check items off on the shopping list as you buy them, or add what's already here above.</div>`));
+    wrap.style.padding = "0 24px 24px";
     return;
   }
   wrap.style.padding = "0";
 
   const table = el("table", "data-table");
-  table.innerHTML = `<thead><tr><th>Ingredient</th><th class="num">Quantity</th><th>Expiry</th><th></th></tr></thead>`;
+  table.innerHTML = `<thead><tr><th>Item</th><th class="num">Left</th><th>Bought</th><th>Use by</th><th></th></tr></thead>`;
   const tbody = el("tbody");
   pantryItems.forEach((item) => {
     const tr = el("tr", rowClass(item.days_until_expiry));
     tr.innerHTML = `
-      <td style="text-transform:capitalize;">${item.display_name}</td>
-      <td class="num">${item.quantity} ${item.unit}</td>
-      <td>${item.expires_on ? `${item.expires_on} <span class="badge ${item.days_until_expiry < 0 ? "badge-warn" : item.days_until_expiry <= 5 ? "badge-warn" : "badge-neutral"}" style="margin-left:6px;">${daysLabel(item.days_until_expiry)}</span>` : '<span style="color:var(--text-muted);">No expiry set</span>'}</td>
+      <td${item.kind === "product" ? "" : ' style="text-transform:capitalize;"'}>${item.display_name}</td>
+      <td class="num">${qtyLabel(item)}</td>
+      <td>${item.purchased_on ? `<span class="num">${formatDate(item.purchased_on)}</span>` : '<span style="color:var(--text-muted);">—</span>'}${item.from_shopping ? ' <span class="badge badge-good" style="margin-left:6px;">From shopping</span>' : ""}</td>
+      <td>${item.expires_on ? `<span class="num">${formatDate(item.expires_on)}</span> <span class="badge ${item.days_until_expiry <= 2 ? "badge-warn" : "badge-neutral"}" style="margin-left:6px;">${daysLabel(item.days_until_expiry)}</span>` : '<span style="color:var(--text-muted);">No date</span>'}</td>
       <td></td>`;
     const actionsCell = tr.lastElementChild;
     const editBtn = el("button", "btn btn-ghost btn-sm", "Edit");
@@ -93,7 +95,15 @@ async function refreshPantry() {
 }
 
 function populateForm(item) {
-  document.getElementById("ingredient-select").value = item.ingredient;
+  const select = document.getElementById("ingredient-select");
+  if (![...select.options].some((o) => o.value === item.ingredient)) {
+    // Store products and custom items aren't in the curated dropdown; add them so they can be edited.
+    const opt = document.createElement("option");
+    opt.value = item.ingredient;
+    opt.textContent = item.display_name;
+    select.appendChild(opt);
+  }
+  select.value = item.ingredient;
   document.getElementById("quantity-input").value = item.quantity;
   document.getElementById("expiry-input").value = item.expires_on || "";
   document.getElementById("unit-label").textContent = `(${item.unit})`;
@@ -119,7 +129,7 @@ async function handleSubmit(e) {
   const btn = document.getElementById("pantry-submit");
   btn.disabled = true;
   try {
-    await postJSON("/api/pantry", { ingredient, quantity, expires_on });
+    await postJSON("/api/pantry", { ingredient, quantity, expires_on, unit: ingredientUnit(ingredient) || undefined });
     toast("Saved to fridge");
     document.getElementById("pantry-form").reset();
     document.getElementById("unit-label").textContent = `(${ingredientUnit(document.getElementById("ingredient-select").value)})`;

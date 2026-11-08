@@ -2,127 +2,155 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#2a6df5">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#efe9dc" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#15130f" media="(prefers-color-scheme: dark)">
 <title>AutoEat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=DM+Mono:wght@400;500&family=Instrument+Sans:wght@400..700&display=swap">
 <link rel="stylesheet" href="/css/style.css">
+<link rel="stylesheet" href="/css/cook-schedule.css">
 <link rel="manifest" href="/manifest.json">
 <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/icons/icon.svg">
 </head>
 <body>
-<div class="page-narrow-wrap">
-<div class="page-narrow">
-  <div class="eyebrow">AutoEat</div>
-  <h1>Tell us about you</h1>
-  <p>We'll turn this into daily macro targets and build a suggested weekly menu around them.</p>
+<div class="gate">
+  <aside class="gate-poster">
+    <div class="gate-brand"><svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><circle class="mark-plate" cx="16" cy="16" r="15"/><path class="mark-wedge" d="M16 16V4.5a11.5 11.5 0 0 1 9.96 17.25Z"/><circle class="mark-hole" cx="16" cy="16" r="4"/></svg>AutoEat</div>
+    <div class="gate-slip ticket" aria-hidden="true"><b>MON</b>cook at home<i></i><i></i><i></i><i></i>order no. 001</div>
+    <p class="gate-tagline">Tell us what you <em>eat.</em> We'll plan the week.</p>
+    <div class="gate-foot"><b>Cook</b> &middot; <b>deliver</b> &middot; <b>order</b><br>one plan across all three</div>
+  </aside>
 
-  <div class="error-banner" id="error-banner"></div>
+  <main class="gate-form">
+    <div class="eyebrow">Set up</div>
+    <h1>Tell us about you</h1>
+    <p>We'll turn this into daily macro targets and build a suggested weekly menu around them.</p>
 
-  <div class="card" id="swipe-card">
-    <div class="section-title">
-      <h2>Quick taste check</h2>
-      <span class="hint">~1 min, optional</span>
-    </div>
-    <p>Swipe through a few foods so your first plan already leans toward what you like.</p>
+    <div class="error-banner" id="error-banner"></div>
 
-    <div class="swipe-progress" id="swipe-progress"></div>
-
-    <div class="swipe-stack" id="swipe-stack">
-      <div class="swipe-loading" id="swipe-loading">Loading foods…</div>
-    </div>
-
-    <div class="swipe-actions" id="swipe-actions" style="display: none;">
-      <button type="button" class="swipe-btn swipe-btn-dislike" id="swipe-dislike" aria-label="Dislike">✕</button>
-      <button type="button" class="swipe-btn swipe-btn-like" id="swipe-like" aria-label="Like">♥</button>
-    </div>
-
-    <div class="swipe-done" id="swipe-done" style="display: none;">Thanks — we'll use that to shape your plan.</div>
-
-    <button type="button" class="skip-link" id="swipe-skip">Skip this</button>
-  </div>
-
-  <form class="card" id="profile-form">
-    <div class="field">
-      <label for="sex">Sex</label>
-      <select id="sex" required>
-        <option value="male">Male</option>
-        <option value="female">Female</option>
-      </select>
-    </div>
-
-    <div class="field-row">
-      <div class="field">
-        <label for="age">Age</label>
-        <input type="number" id="age" min="13" max="100" value="25" required>
+    <div class="card step" id="swipe-card">
+      <div class="step-head">
+        <h2>Quick taste check</h2>
+        <span class="hint">~1 min, optional</span>
       </div>
-      <div class="field">
-        <label for="weight_lbs">Weight (lb)</label>
-        <input type="number" id="weight_lbs" min="60" max="500" value="170" required>
+      <p>Would you eat it? Swipe right for yes, left for no, so your first plan already leans toward what you like. Allergies and diet go in the form below, not here.</p>
+
+      <div class="swipe-progress" id="swipe-progress"></div>
+
+      <div class="swipe-stack" id="swipe-stack">
+        <div class="swipe-loading" id="swipe-loading">Loading foods…</div>
       </div>
+
+      <div class="swipe-actions" id="swipe-actions" style="display: none;">
+        <button type="button" class="swipe-btn swipe-btn-dislike" id="swipe-dislike" aria-label="Dislike">✕</button>
+        <button type="button" class="swipe-btn swipe-btn-like" id="swipe-like" aria-label="Like">♥</button>
+      </div>
+
+      <div class="swipe-done" id="swipe-done" style="display: none;">Thanks, we'll use that to shape your plan.</div>
+
+      <button type="button" class="skip-link" id="swipe-skip">Skip this</button>
     </div>
 
-    <div class="field">
-      <label>Height</label>
-      <div class="field-row">
-        <div class="field">
-          <input type="number" id="height_ft" min="3" max="8" value="5" required aria-label="Feet">
-          <div class="help-text">feet</div>
+    <form id="profile-form">
+      <div class="card step">
+        <div class="step-head"><h2>Your body</h2></div>
+
+        <div class="field-row keep-row">
+          <div class="field">
+            <label for="sex">Sex</label>
+            <select id="sex" required>
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="age">Age</label>
+            <input type="number" id="age" min="13" max="100" value="25" required>
+          </div>
         </div>
+
+        <div class="field-row keep-row">
+          <div class="field">
+            <label for="weight_lbs">Weight (lb)</label>
+            <input type="number" id="weight_lbs" min="60" max="500" value="170" required>
+          </div>
+          <div class="field">
+            <label for="height_ft">Height (ft)</label>
+            <input type="number" id="height_ft" min="3" max="8" value="5" required>
+          </div>
+          <div class="field">
+            <label for="height_in">Height (in)</label>
+            <input type="number" id="height_in" min="0" max="11" value="10" required>
+          </div>
+        </div>
+
         <div class="field">
-          <input type="number" id="height_in" min="0" max="11" value="10" required aria-label="Inches">
-          <div class="help-text">inches</div>
+          <label for="activity">Daily activity level</label>
+          <select id="activity" required>
+            <option value="sedentary">Sedentary: little or no exercise</option>
+            <option value="light">Lightly active: light exercise 1-3 days/week</option>
+            <option value="moderate" selected>Moderately active: moderate exercise 3-5 days/week</option>
+            <option value="active">Very active: hard exercise 6-7 days/week</option>
+            <option value="very_active">Extremely active: very hard training or physical job</option>
+          </select>
         </div>
       </div>
-    </div>
 
-    <div class="field">
-      <label for="activity">Daily activity level</label>
-      <select id="activity" required>
-        <option value="sedentary">Sedentary — little or no exercise</option>
-        <option value="light">Lightly active — light exercise 1-3 days/week</option>
-        <option value="moderate" selected>Moderately active — moderate exercise 3-5 days/week</option>
-        <option value="active">Very active — hard exercise 6-7 days/week</option>
-        <option value="very_active">Extremely active — very hard training or physical job</option>
-      </select>
-    </div>
-
-    <div class="field">
-      <label>Goal</label>
-      <div class="goal-cards" id="goal-cards">
-        <div class="goal-card" data-value="lose_fat">Lose Fat</div>
-        <div class="goal-card selected" data-value="maintain">Maintain</div>
-        <div class="goal-card" data-value="gain_muscle">Gain Muscle</div>
+      <div class="card step">
+        <div class="step-head"><h2>Your goal</h2></div>
+        <div class="goal-cards" id="goal-cards">
+          <div class="goal-card" data-value="lose_fat"><span class="goal-glyph">↘</span>Lose Fat</div>
+          <div class="goal-card selected" data-value="maintain"><span class="goal-glyph">→</span>Maintain</div>
+          <div class="goal-card" data-value="gain_muscle"><span class="goal-glyph">↗</span>Gain Muscle</div>
+        </div>
       </div>
-    </div>
 
-    <div class="field-row">
-      <div class="field">
-        <label for="budget">Daily food budget ($)</label>
-        <input type="number" id="budget" min="5" max="200" value="25" step="0.5" required>
+      <div class="card step">
+        <div class="step-head"><h2>Budget, time &amp; diet</h2></div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="weekly_budget">Weekly food budget ($)</label>
+            <input type="number" id="weekly_budget" min="35" max="1400" value="175" step="1" required aria-describedby="weekly_budget_hint">
+            <div class="hint" id="weekly_budget_hint" style="margin-top: 6px;">≈ $758/month</div>
+          </div>
+          <div class="field">
+            <label for="cook_time">Time to cook per day</label>
+            <select id="cook_time">
+              <option value="low">Not much (~20 min)</option>
+              <option value="medium" selected>Some (~45 min)</option>
+              <option value="high">Plenty (~90 min)</option>
+            </select>
+            <div class="checkbox-row cook-weekend-toggle"><input type="checkbox" id="cook_weekend_different"><label for="cook_weekend_different">Weekends are different</label></div>
+            <div id="cook_time_weekend_field" hidden>
+              <label for="cook_time_weekend">Time to cook on weekends</label>
+              <select id="cook_time_weekend">
+                <option value="low">Not much (~20 min)</option>
+                <option value="medium">Some (~45 min)</option>
+                <option value="high" selected>Plenty (~90 min)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Dietary preferences <span style="color: var(--text-muted);">(optional)</span></label>
+          <div class="chip-set">
+            <div class="checkbox-row"><input type="checkbox" id="f-vegetarian"><label for="f-vegetarian">Vegetarian</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="f-vegan"><label for="f-vegan">Vegan</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="f-halal"><label for="f-halal">Halal</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="f-gluten_free"><label for="f-gluten_free">Gluten-free</label></div>
+            <div class="checkbox-row"><input type="checkbox" id="f-no_pork"><label for="f-no_pork">No pork</label></div>
+          </div>
+        </div>
       </div>
-      <div class="field">
-        <label for="cook_time">Time to cook per day</label>
-        <select id="cook_time">
-          <option value="low">Not much (~20 min)</option>
-          <option value="medium" selected>Some (~45 min)</option>
-          <option value="high">Plenty (~90 min)</option>
-        </select>
-      </div>
-    </div>
 
-    <div class="field">
-      <label>Dietary preferences <span style="font-weight: 400; color: var(--text-muted);">(optional)</span></label>
-      <div class="checkbox-row"><input type="checkbox" id="f-vegetarian"><label for="f-vegetarian">Vegetarian</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="f-vegan"><label for="f-vegan">Vegan</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="f-halal"><label for="f-halal">Halal</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="f-gluten_free"><label for="f-gluten_free">Gluten-free</label></div>
-      <div class="checkbox-row"><input type="checkbox" id="f-no_pork"><label for="f-no_pork">No pork</label></div>
-    </div>
-
-    <button type="submit" class="primary" id="submit-btn">Build my plan</button>
-  </form>
-</div>
+      <button type="submit" class="primary" id="submit-btn">Build my plan</button>
+    </form>
+  </main>
 </div>
 
 <script src="/js/pwa.js"></script>

@@ -1,0 +1,88 @@
+{
+ "_about": "Hand labels for taste.py's feature vectors. 'kinds' gives each catalog kind (the catalog search term that found it, see grocery.db's catalog_terms) its default format, meal role, flavor, cuisine, protein source and processing level; 'name_words' then overrides or adds to those from words in the product's own name, since Kroger's search is fuzzy (salsa comes back under 'guacamole', muffins under 'bagels'). Items with no kind (recipes, delivery placeholders) use '_default'. Name words are matched case-insensitively as whole words or phrases; within one field the first listed value that matches wins.",
+ "kinds": {
+  "_default":                  {"format": "cooked_dish", "meal": "main",      "flavor": "savory", "cuisine": "none",          "protein": "none",    "processing": "fresh"},
+  "protein bar":               {"format": "bar",         "meal": "snack",     "flavor": "sweet",  "cuisine": "none",          "protein": "dairy",   "processing": "processed"},
+  "granola bar":               {"format": "bar",         "meal": "snack",     "flavor": "sweet",  "cuisine": "none",          "protein": "none",    "processing": "processed"},
+  "protein shake":             {"format": "drink",       "meal": "drink",     "flavor": "sweet",  "cuisine": "none",          "protein": "dairy",   "processing": "processed"},
+  "greek yogurt cup":          {"format": "cup",         "meal": "breakfast", "flavor": "sweet",  "cuisine": "none",          "protein": "dairy",   "processing": "minimal"},
+  "cottage cheese":            {"format": "cup",         "meal": "snack",     "flavor": "plain",  "cuisine": "none",          "protein": "dairy",   "processing": "minimal"},
+  "string cheese":             {"format": "snack",       "meal": "snack",     "flavor": "savory", "cuisine": "none",          "protein": "dairy",   "processing": "minimal"},
+  "milk":                      {"format": "drink",       "meal": "drink",     "flavor": "plain",  "cuisine": "none",          "protein": "dairy",   "processing": "minimal"},
+  "kefir":                     {"format": "drink",       "meal": "breakfast", "flavor": "sweet",  "cuisine": "none",          "protein": "dairy",   "processing": "minimal"},
+  "hard boiled eggs":          {"format": "snack",       "meal": "breakfast", "flavor": "plain",  "cuisine": "none",          "protein": "egg",     "processing": "fresh"},
+  "deli turkey":               {"format": "deli_meat",   "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "turkey",  "processing": "minimal"},
+  "deli chicken":              {"format": "deli_meat",   "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "chicken", "processing": "minimal"},
+  "canned tuna":               {"format": "canned",      "meal": "main",      "flavor": "savory", "cuisine": "none",          "protein": "fish",    "processing": "minimal"},
+  "canned chicken":            {"format": "canned",      "meal": "main",      "flavor": "savory", "cuisine": "none",          "protein": "chicken", "processing": "minimal"},
+  "tuna pouch":                {"format": "canned",      "meal": "main",      "flavor": "savory", "cuisine": "none",          "protein": "fish",    "processing": "minimal"},
+  "beef jerky":                {"format": "snack",       "meal": "snack",     "flavor": "savory", "cuisine": "american",      "protein": "beef",    "processing": "processed"},
+  "hummus":                    {"format": "dip",         "meal": "snack",     "flavor": "savory", "cuisine": "mediterranean", "protein": "plant",   "processing": "minimal"},
+  "guacamole":                 {"format": "dip",         "meal": "snack",     "flavor": "savory", "cuisine": "mexican",       "protein": "none",    "processing": "minimal"},
+  "salad kit":                 {"format": "salad",       "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "none",    "processing": "fresh"},
+  "sushi":                     {"format": "entree",      "meal": "main",      "flavor": "savory", "cuisine": "asian",         "protein": "fish",    "processing": "fresh"},
+  "deli sandwich":             {"format": "handheld",    "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "none",    "processing": "minimal"},
+  "wrap sandwich":             {"format": "handheld",    "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "none",    "processing": "minimal"},
+  "frozen meal":               {"format": "entree",      "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "none",    "processing": "processed"},
+  "frozen burrito":            {"format": "handheld",    "meal": "main",      "flavor": "savory", "cuisine": "mexican",       "protein": "plant",   "processing": "processed"},
+  "frozen pizza":              {"format": "pizza",       "meal": "main",      "flavor": "savory", "cuisine": "italian",       "protein": "dairy",   "processing": "processed"},
+  "frozen breakfast sandwich": {"format": "handheld",    "meal": "breakfast", "flavor": "savory", "cuisine": "american",      "protein": "egg",     "processing": "processed"},
+  "frozen chicken strips":     {"format": "fried",       "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "chicken", "processing": "processed"},
+  "microwave rice":            {"format": "staple",      "meal": "main",      "flavor": "plain",  "cuisine": "asian",         "protein": "none",    "processing": "minimal"},
+  "instant oatmeal":           {"format": "cereal",      "meal": "breakfast", "flavor": "sweet",  "cuisine": "none",          "protein": "none",    "processing": "processed"},
+  "cereal":                    {"format": "cereal",      "meal": "breakfast", "flavor": "sweet",  "cuisine": "none",          "protein": "none",    "processing": "processed"},
+  "granola":                   {"format": "cereal",      "meal": "breakfast", "flavor": "sweet",  "cuisine": "none",          "protein": "nuts",    "processing": "processed"},
+  "whole wheat bread":         {"format": "bread",       "meal": "breakfast", "flavor": "plain",  "cuisine": "none",          "protein": "none",    "processing": "minimal"},
+  "bagels":                    {"format": "bread",       "meal": "breakfast", "flavor": "plain",  "cuisine": "american",      "protein": "none",    "processing": "minimal"},
+  "tortillas":                 {"format": "bread",       "meal": "main",      "flavor": "plain",  "cuisine": "mexican",       "protein": "none",    "processing": "minimal"},
+  "peanut butter":             {"format": "spread",      "meal": "snack",     "flavor": "savory", "cuisine": "american",      "protein": "nuts",    "processing": "minimal"},
+  "almonds":                   {"format": "snack",       "meal": "snack",     "flavor": "plain",  "cuisine": "none",          "protein": "nuts",    "processing": "fresh"},
+  "trail mix":                 {"format": "snack",       "meal": "snack",     "flavor": "sweet",  "cuisine": "none",          "protein": "nuts",    "processing": "minimal"},
+  "canned soup":               {"format": "soup",        "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "none",    "processing": "processed"},
+  "canned chili":              {"format": "soup",        "meal": "main",      "flavor": "savory", "cuisine": "mexican",       "protein": "beef",    "processing": "processed"},
+  "instant ramen":             {"format": "noodles",     "meal": "main",      "flavor": "savory", "cuisine": "asian",         "protein": "none",    "processing": "processed"},
+  "mac and cheese cup":        {"format": "noodles",     "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "dairy",   "processing": "processed"},
+  "fruit cup":                 {"format": "fruit",       "meal": "snack",     "flavor": "sweet",  "cuisine": "none",          "protein": "none",    "processing": "minimal"},
+  "applesauce":                {"format": "fruit",       "meal": "snack",     "flavor": "sweet",  "cuisine": "none",          "protein": "none",    "processing": "minimal"},
+  "baby carrots":              {"format": "produce",     "meal": "snack",     "flavor": "plain",  "cuisine": "none",          "protein": "none",    "processing": "fresh"},
+  "orange juice":              {"format": "drink",       "meal": "drink",     "flavor": "sweet",  "cuisine": "none",          "protein": "none",    "processing": "minimal"},
+  "tofu":                      {"format": "staple",      "meal": "main",      "flavor": "plain",  "cuisine": "asian",         "protein": "plant",   "processing": "minimal"},
+  "veggie burger":             {"format": "patty",       "meal": "main",      "flavor": "savory", "cuisine": "american",      "protein": "plant",   "processing": "processed"}
+ },
+ "name_words": {
+  "protein": {
+   "plant":   ["plant-based", "plant based", "vegan", "impossible", "meatless", "boca", "morningstar", "veggie burger", "veggie patties", "beyond", "chik'n", "tofu", "black bean", "bean and cheese", "bean & cheese", "lentil", "chickpea", "falafel", "edamame"],
+   "fish":    ["chicken of the sea", "tuna", "salmon", "shrimp", "crab", "fish", "sardine", "seafood", "poke", "cod", "tilapia"],
+   "pork":    ["pork", "bacon", "ham", "sausage", "pepperoni", "carnitas", "prosciutto", "salami", "chorizo", "pastrami"],
+   "turkey":  ["turkey"],
+   "chicken": ["chicken"],
+   "beef":    ["beef", "steak", "sirloin", "brisket", "cheeseburger", "hamburger", "meatball", "barbacoa"],
+   "egg":     ["egg", "eggs", "scramble", "omelet", "frittata"],
+   "nuts":    ["peanut", "almond", "cashew", "walnut", "pecan", "pistachio", "nut butter"],
+   "dairy":   ["cheese", "yogurt", "milk", "whey", "mozzarella", "cheddar", "ricotta"]
+  },
+  "cuisine": {
+   "mexican":       ["burrito", "taco", "enchilada", "salsa", "chipotle", "fajita", "quesadilla", "tortilla", "carnitas", "tamale", "street corn", "picante", "nacho", "barbacoa", "southwest", "chorizo", "guacamole"],
+   "asian":         ["teriyaki", "ramen", "miso", "pad thai", "sushi", "sesame", "kung pao", "korean", "thai", "curry", "jasmine", "mabo", "udon", "pho", "lo mein", "fried rice", "sweet & sour", "sweet and sour", "orange chicken", "poke", "tofu", "noodle bowl", "basmati", "tikka", "masala"],
+   "italian":       ["pizza", "pasta", "ravioli", "alfredo", "marinara", "lasagna", "margherita", "pepperoni", "hoagie", "italian", "parmesan", "spaghetti", "penne", "ricotta", "pesto", "sicilian", "rigatoni", "tortellini", "fettuccine", "ziti"],
+   "mediterranean": ["hummus", "falafel", "pita", "tzatziki", "feta", "lavash", "mediterranean", "greek salad", "tabbouleh"]
+  },
+  "add_flavor": {
+   "sweet": ["chocolate", "vanilla", "honey", "strawberry", "blueberry", "cinnamon", "maple", "caramel", "berry", "berries", "peach", "mango", "cherry", "banana", "apple", "cake", "cookie", "brownie", "sweet", "fruit", "raisin", "cocoa", "pancake", "griddle cake", "pineapple", "raspberry", "lemon", "coconut", "frosted", "glazed", "dessert", "s'mores", "sugar"],
+   "spicy": ["spicy", "hot", "jalapeno", "jalapeño", "habanero", "buffalo", "chipotle", "sriracha", "cajun", "firecracker", "picante", "nashville", "pepper jack", "chili", "chile", "blackened", "fiery", "kimchi", "gochujang"]
+  },
+  "format": {
+   "fried":   ["nugget", "nuggets", "nuggies", "tenders", "strips", "popcorn chicken"],
+   "pizza":   ["pizza", "flatbread"],
+   "dip":     ["salsa", "dip"],
+   "bread":   ["muffin", "muffins", "tortillas", "taco shells", "bread", "buns", "english muffin"],
+   "noodles": ["noodle", "noodles", "ramen", "mac & cheese", "mac and cheese", "pasta"],
+   "soup":    ["soup", "chowder", "stew", "broth"]
+  }
+ },
+ "recipe_words": {
+  "meal": {
+   "breakfast": ["oats", "oatmeal", "scramble", "yogurt", "pancake", "breakfast"]
+  }
+ }
+}
